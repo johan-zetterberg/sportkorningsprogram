@@ -1,4 +1,5 @@
 import { deleteEquipage, clearAllEquipages, competitionHasResults, migrateEquipagePrivacy } from '../../services/equipageService.js';
+import { precisionLabel } from '../../utils/i18n.js';
 import { showAlert } from '../../ui/components.js';
 import { competitionClasses } from '../../data/competitionData.js';
 import {
@@ -204,7 +205,7 @@ export function getParticipantsHtml() {
                         <div class="grid grid-cols-2 gap-3">
                             <select id="new-role-discipline" class="block w-full p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                                 <option value="dressage">Dressyr</option>
-                                <option value="precision">Precision</option>
+                                <option value="precision">${precisionLabel()}</option>
                                 <option value="marathon">Maraton</option>
                                 <option value="overjudge">Överdomare</option>
                             </select>

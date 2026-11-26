@@ -1,4 +1,5 @@
 import { getGlobalState } from '../../main.js';
+import { precisionLabel, isArenaLabelContext } from '../../utils/i18n.js';
 import { formConflictMessage, planFormSave } from '../../utils/formDiff.js';
 import { listenForEquipages } from '../../services/equipageService.js';
 import { saveEquipage } from '../../services/equipageService.js';
@@ -182,7 +183,7 @@ function showEquipageDetailsModal(equipage) {
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-sm">
                     <span class="font-medium text-gray-600 dark:text-gray-300">Dressyr:</span> <span class="dark:text-gray-100 break-words">${getHorseNames('dressage')}</span>
                     <span class="font-medium text-gray-600 dark:text-gray-300">Maraton:</span> <span class="dark:text-gray-100 break-words">${getHorseNames('marathon')}</span>
-                    <span class="font-medium text-gray-600 dark:text-gray-300">Precision:</span> <span class="dark:text-gray-100 break-words">${getHorseNames('precision')}</span>
+                    <span class="font-medium text-gray-600 dark:text-gray-300">${precisionLabel()}:</span> <span class="dark:text-gray-100 break-words">${getHorseNames('precision')}</span>
                 </div>
                 ${!canSelectHorses ? `<p class="text-xs text-gray-500 dark:text-gray-400 italic mt-2">Ekipaget har inte tillräckligt många reservhästar (${allHorses.length} st) för att göra val.</p>` : ''}
             </div>
@@ -313,7 +314,7 @@ function renderHorseSelectionView(equipage, allHorses, horseLimit, modalContent)
     const disciplines = [
         { key: 'dressage', label: 'Dressyr' },
         { key: 'marathon', label: 'Maraton' },
-        { key: 'precision', label: 'Precision (Konkörning)' }
+        { key: 'precision', label: isArenaLabelContext() ? precisionLabel() : 'Precision (Konkörning)' }
     ];
 
     let contentHtml = `

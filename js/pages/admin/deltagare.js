@@ -24,7 +24,7 @@ import {
 } from '../../utils/sharedUtils.js';
 import { generateStartListPdf } from '../../pdf/startListPdf.js';
 import { loadPdfLibs } from '../../pdf/pdfBase.js';
-import { t } from '../../utils/i18n.js';
+import { t, precisionLabel } from '../../utils/i18n.js';
 
 // Mobil-detektering importeras nu globalt från sharedUtils.js
 
@@ -725,7 +725,7 @@ function renderAndShowDetailsModal(equipage) {
 
             <!-- PRECISION -->
             <div class="space-y-1">
-              <div class="font-semibold text-gray-700 dark:text-gray-300">Precision</div>
+              <div class="font-semibold text-gray-700 dark:text-gray-300">${precisionLabel()}</div>
               ${renderPrecisionStatus(startNo)}
             </div>
 

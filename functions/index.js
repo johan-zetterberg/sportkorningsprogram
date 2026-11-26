@@ -34,6 +34,7 @@ import {
     isGlobalAdminIdentity
 } from "./src/competitionDeletion.js";
 import { onSchedule } from "firebase-functions/v2/scheduler";
+import { GlobalAdminError, listGlobalAdmins as listGlobalAdminsIn, setGlobalAdminRole } from "./src/globalAdmins.js";
 import {
     DRIVER_EMAIL_FIELDS,
     PERSON_SEARCH,
@@ -2023,7 +2024,7 @@ async function isSuperadminRequest(request) {
 async function assertSuperadmin(request) {
     if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inloggning krävs.');
     if (!(await isSuperadminRequest(request))) {
-        throw new HttpsError('permission-denied', 'Endast superadministratören får hantera e-postinställningarna.');
+        throw new HttpsError('permission-denied', 'Endast superadministratören får göra detta.');
     }
 }
 
@@ -2600,6 +2601,32 @@ export const setPushSettings = onCall({ maxInstances: 2 }, async (request) => {
     }
     logger.info('Push-inställningar ändrade', { configured: !!settings.vapidKey, enabled: settings.enabled, by: request.auth.uid });
     return pushSettingsView(settings);
+});
+
+// --- Global admins (superadmin): may create and administer all competitions ---
+
+function globalAdminHttpsError(error) {
+    if (error instanceof GlobalAdminError) return new HttpsError(error.code, error.message);
+    return error;
+}
+
+/** { email, admin: boolean } -> { uid, email, role, changed } (superadmin) */
+export const setGlobalAdmin = onCall({ maxInstances: 2 }, async (request) => {
+    await assertSuperadmin(request);
+    let result;
+    try {
+        result = await setGlobalAdminRole({ db, auth: getAuth() }, request.data || {}, { byUid: request.auth.uid });
+    } catch (error) {
+        throw globalAdminHttpsError(error);
+    }
+    if (result.changed) logger.info('Global admin ändrad', { uid: result.uid, role: result.role, by: request.auth.uid });
+    return result;
+});
+
+/** -> { admins: [{ uid, email, role }] } (superadmin) */
+export const getGlobalAdmins = onCall({ maxInstances: 2 }, async (request) => {
+    await assertSuperadmin(request);
+    return { admins: await listGlobalAdminsIn({ db }) };
 });
 
 /** The settings and the number of registered devices (superadmin) */

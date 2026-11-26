@@ -192,3 +192,21 @@ test('arena competition: classes without their own format are arena classes with
     assert.equal(getPrecisionFormat('Ny klass', {}), 'normal');
     assert.equal(getArenaSettings('Ny klass', {}).rules, 'FEI');
 });
+
+test('arena competition: the precision discipline is called Arenakörning', async () => {
+  const { setCompetitionLanguageContext, t, translateTo, precisionLabel } = await import('../js/utils/i18n.js');
+  try {
+    setCompetitionLanguageContext({ competitionKind: 'arena' });
+    assert.equal(t('menu_precision'), 'Arenakörning');
+    assert.equal(t('menu_admin_precision'), 'Admin Arenakörning');
+    assert.equal(translateTo('precision', 'en'), 'Arena driving');
+    assert.equal(precisionLabel('sv'), 'Arenakörning');
+    // Other labels as before
+    assert.equal(t('menu_dressage') !== 'Arenakörning', true);
+    setCompetitionLanguageContext({ competitionKind: 'combined' });
+    assert.equal(t('menu_precision'), 'Precision');
+    assert.equal(precisionLabel('sv'), 'Precision');
+  } finally {
+    setCompetitionLanguageContext(null);
+  }
+});

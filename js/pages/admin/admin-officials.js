@@ -15,6 +15,7 @@ import {
     listenForRoles,
     saveRoles
 } from '../../services/officialsService.js';
+import { precisionLabel } from '../../utils/i18n.js';
 import { getSecretConfig, migrateJudgesPrivacy, migrateOfficialsPrivacy } from '../../services/adminService.js';
 import { PIN_JOIN_ROLES, ROLE_CODE_LABELS, buildRoleJoinLink, formatRoleCode, roleCodeField } from '../../utils/officialAccessUtils.js';
 
@@ -52,16 +53,16 @@ let activeOfficialsCompetitionId = null;
 let activeOfficialsContainer = null;
 let activeOfficialsCompetition = null;
 
-const SYSTEM_ROLE_LABELS = {
+const SYSTEM_ROLE_LABELS = () => ({
     admin: 'Sekretariat / Admin',
     dressage: 'Dressyr',
     marathon: 'Maraton',
-    precision: 'Precision',
+    precision: precisionLabel(),
     speaker: 'Speaker',
     // Limited role: the vet inspection page and its private data only
     vet: 'Veterinär'
-};
-const SYSTEM_ROLE_KEYS = Object.keys(SYSTEM_ROLE_LABELS);
+});
+const SYSTEM_ROLE_KEYS = Object.keys(SYSTEM_ROLE_LABELS());
 
 function normalizeOfficialSystemRoles(official = {}, competition = {}) {
     const roles = Array.isArray(official.roles) ? [...official.roles] : [];
@@ -85,7 +86,7 @@ function setSelectedSystemRoles(container, roles = []) {
 function renderSystemRoleBadges(official, competition = {}) {
     return normalizeOfficialSystemRoles(official, competition).map(role => `
         <span class="inline-flex items-center rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide">
-            ${SYSTEM_ROLE_LABELS[role]}
+            ${SYSTEM_ROLE_LABELS()[role]}
         </span>
     `).join('');
 }
@@ -568,7 +569,7 @@ function renderPeopleView(_officials = officials, competition = {}) {
                                 <label class="inline-flex items-center gap-2"><input type="checkbox" name="sysRole" value="admin" class="rounded"> Sekretariat / Admin</label>
                                 <label class="inline-flex items-center gap-2"><input type="checkbox" name="sysRole" value="dressage" class="rounded"> Dressyr</label>
                                 <label class="inline-flex items-center gap-2"><input type="checkbox" name="sysRole" value="marathon" class="rounded"> Maraton</label>
-                                <label class="inline-flex items-center gap-2"><input type="checkbox" name="sysRole" value="precision" class="rounded"> Precision</label>
+                                <label class="inline-flex items-center gap-2"><input type="checkbox" name="sysRole" value="precision" class="rounded"> ${precisionLabel()}</label>
                                 <label class="inline-flex items-center gap-2"><input type="checkbox" name="sysRole" value="speaker" class="rounded"> Speaker</label>
                                 <label class="inline-flex items-center gap-2"><input type="checkbox" name="sysRole" value="vet" class="rounded"> Veterinär</label>
                                 <label class="inline-flex items-center gap-2"><input type="checkbox" name="sysRole" value="td" class="rounded"> TD / Domarkollegium</label>
@@ -744,7 +745,7 @@ function renderAssignView() {
                             <option value="all">Alla / Övergripande</option>
                             <option value="marathon">Maraton</option>
                             <option value="dressage">Dressyr</option>
-                            <option value="precision">Precision</option>
+                            <option value="precision">${precisionLabel()}</option>
                         </select>
                     </div>
 
@@ -847,7 +848,7 @@ function renderOverviewView() {
             <button class="px-3 py-1 rounded border ${currentFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-white hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700'}" data-action="setOverviewFilter" data-action-args='["all"]'>Alla</button>
             <button class="px-3 py-1 rounded border ${currentFilter === 'marathon' ? 'bg-blue-600 text-white' : 'bg-white hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700'}" data-action="setOverviewFilter" data-action-args='["marathon"]'>Maraton</button>
             <button class="px-3 py-1 rounded border ${currentFilter === 'dressage' ? 'bg-blue-600 text-white' : 'bg-white hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700'}" data-action="setOverviewFilter" data-action-args='["dressage"]'>Dressyr</button>
-            <button class="px-3 py-1 rounded border ${currentFilter === 'precision' ? 'bg-blue-600 text-white' : 'bg-white hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700'}" data-action="setOverviewFilter" data-action-args='["precision"]'>Precision</button>
+            <button class="px-3 py-1 rounded border ${currentFilter === 'precision' ? 'bg-blue-600 text-white' : 'bg-white hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700'}" data-action="setOverviewFilter" data-action-args='["precision"]'>${precisionLabel()}</button>
         </div>
     `;
 

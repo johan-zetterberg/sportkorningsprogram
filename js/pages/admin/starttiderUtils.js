@@ -1,4 +1,5 @@
 import { escapeHtml } from '../../utils/sharedUtils.js';
+import { precisionLabel } from '../../utils/i18n.js';
 import { vetStrikeChipHtml } from '../../ui/vetStrikeChip.js';
 import { compareStartNumbers } from '../../utils/startNumberSort.js';
 
@@ -156,7 +157,7 @@ export function renderStarttiderPublishResetSection({
         <div class="grid grid-cols-3 gap-2">
             <button id="clearDressage" class="w-full px-2 py-2 text-xs font-semibold rounded-md bg-red-100 text-red-700 border border-red-200 hover:bg-red-200 transition-colors">${labels.clearDressage || 'Rensa dressyr'}</button>
             <button id="clearMarathon" class="w-full px-2 py-2 text-xs font-semibold rounded-md bg-red-100 text-red-700 border border-red-200 hover:bg-red-200 transition-colors">${labels.clearMarathon || 'Rensa maraton'}</button>
-            <button id="clearPrecision" class="w-full px-2 py-2 text-xs font-semibold rounded-md bg-red-100 text-red-700 border border-red-200 hover:bg-red-200 transition-colors">${labels.clearPrecision || 'Rensa precision'}</button>
+            <button id="clearPrecision" class="w-full px-2 py-2 text-xs font-semibold rounded-md bg-red-100 text-red-700 border border-red-200 hover:bg-red-200 transition-colors">${labels.clearPrecision || `Rensa ${precisionLabel().toLowerCase()}`}</button>
         </div>
     </div>
 </div>`;
@@ -203,7 +204,7 @@ export function renderStarttiderToolbarSection({
                 <div class="py-1">
                     <button class="w-full text-left block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" data-action="pdf-dressage">${labels.pdfDressage || 'Startlista dressyr'}</button>
                     <button class="w-full text-left block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" data-action="pdf-marathon">${labels.pdfMarathon || 'Startlista maraton'}</button>
-                    <button class="w-full text-left block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" data-action="pdf-precision">${labels.pdfPrecision || 'Startlista precision'}</button>
+                    <button class="w-full text-left block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" data-action="pdf-precision">${labels.pdfPrecision || `Startlista ${precisionLabel().toLowerCase()}`}</button>
                 </div>
             </div>
         </div>
@@ -408,7 +409,7 @@ export function renderStarttiderActionButtons({
     const disciplineStyles = {
         dressage: { shortLabel: 'D', mobileLabel: 'Dressyr:', color: 'bg-slate-100', text: 'text-slate-700' },
         marathon: { shortLabel: 'M', mobileLabel: 'Maraton:', color: 'bg-emerald-100', text: 'text-emerald-700' },
-        precision: { shortLabel: 'P', mobileLabel: 'Precision:', color: 'bg-indigo-100', text: 'text-indigo-700' }
+        precision: { shortLabel: 'P', mobileLabel: `${precisionLabel()}:`, color: 'bg-indigo-100', text: 'text-indigo-700' }
     };
     const style = disciplineStyles[discipline] || disciplineStyles.dressage;
     // Escaped once for attribute use below
@@ -541,7 +542,7 @@ export function renderStarttiderMobileCard({
     const disciplineLabels = {
         dressage: labels.dressage || 'Dressyr:',
         marathon: labels.marathon || 'Maraton:',
-        precision: labels.precision || 'Precision:'
+        precision: labels.precision || `${precisionLabel()}:`
     };
     const startOrderBadge = startOrderBadgeHtml ? ` ${startOrderBadgeHtml}` : '';
 
@@ -595,7 +596,7 @@ const PUBLIC_DISCIPLINE_SHORT = { dressage: 'D', marathon: 'M', precision: 'P' }
  * (instead of "Ej publicerad" in every cell). '' when all are published.
  */
 export function renderPublicStartListNotice(publishedFlags = {}, {
-    disciplineLabels = { dressage: 'Dressyr', marathon: 'Maraton', precision: 'Precision' },
+    disciplineLabels = { dressage: 'Dressyr', marathon: 'Maraton', precision: precisionLabel() },
     noneText = 'Starttiderna är inte publicerade ännu.',
     someText = 'Starttider är inte publicerade ännu för:'
 } = {}) {

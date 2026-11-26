@@ -1149,6 +1149,7 @@ function getTabContentSV(tab) {
                 <h5 class="text-sm font-bold text-gray-700 mt-4 mb-1">Domare & Funktionärer</h5>
                 <ul class="list-disc list-inside text-sm text-gray-600 ml-2 space-y-1">
                   <li><strong>Behörighet:</strong> Funktionärer ansluter med sin rolls kod (10 tecken) under <em>Admin > Inställningar</em>. Skicka helst länken eller QR-koden, då är tävlingen redan ifylld. Koderna kan bytas och åtkomsten återkallas. Administratörer ansluts inte med kod (det finns ingen admin-PIN): bjud in dem med e-post under <em>Funktionärer > Bjud in administratör</em>.</li>
+                  <li><strong>Tävlingsledare som skapar egna tävlingar:</strong> superadministratören ger rätten under <em>Admin > Inställningar > Administratörer som kan skapa tävlingar</em> (personens e-post; kontot måste finnas och adressen vara bekräftad). Rollen ger tillgång till alla tävlingar, så för en enstaka tävling räcker en inbjudan.</li>
                   <li><strong>Registrering:</strong> Lägg in domare och funktionärer här så att de kan kopplas till rätt position och uppdrag.</li>
                   <li><strong>Säkerhet & Logistik:</strong> Lägg in ICE-telefonnummer, kostavvikelser/allergier och tröjstorlek.</li>
                   <li><strong>Utskriftsrapporter:</strong> Under <em>Rapporter</em> kan du exportera telefonlistor, funktionärslistor per hinder/plats, incheckningslistor och sammanställning för catering (PDF och CSV).</li>
@@ -2386,6 +2387,7 @@ function getTabContentEN(tab) {
                 <h5 class="text-sm font-bold text-gray-700 mt-4 mb-1">Judges & Crew</h5>
                 <ul class="list-disc list-inside text-sm text-gray-600 ml-2 space-y-1">
                   <li><strong>Access:</strong> Officials join with their role's code (10 characters) from <em>Admin > Settings</em>. Preferably send the join link or QR code, which fills in the competition. Codes can be changed and access revoked. Admins do not join with a code (there is no admin PIN): invite them by email under <em>Officials > Invite administrator</em>.</li>
+                  <li><strong>Competition managers who create their own competitions:</strong> the superadmin grants this under <em>Admin > Settings > Administrators who can create competitions</em> (the person's email; the account must exist with a confirmed address). The role gives access to every competition, so for a single competition an invitation is enough.</li>
                   <li><strong>Registration:</strong> Add judges and officials here so they can be linked to their position and assignments.</li>
                   <li><strong>Safety & Catering:</strong> Track ICE contact, allergies, and shirt sizes for logistical reports.</li>
                   <li><strong>Reports:</strong> Under <em>Reports</em>, export phone lists, station assignment sheets, check-in lists, and catering summaries (PDF and CSV).</li>

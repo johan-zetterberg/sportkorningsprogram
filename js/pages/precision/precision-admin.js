@@ -8,7 +8,7 @@ import { getClassTempoMpm } from '../../utils/precisionUtils.js';
 import { PRECISION_FORMATS, getPrecisionFormat, getPrecisionRoundTempoMpm } from '../../utils/precisionCalculation.js';
 import { getClassRuleProfile } from '../../core-engine/marathon.js';
 import { getMarathonEngineConfig } from '../../utils/marathonUtils.js';
-import { t } from '../../utils/i18n.js';
+import { t, precisionLabel, isArenaLabelContext } from '../../utils/i18n.js';
 import { precisionCourseWarnings, precisionRoundSettingsIssues } from './precisionRoundsDisplay.js';
 import { PRECISION_TIME_PENALTY_RATE } from '../../core-engine/rules-ledger.js';
 import { generatePrecisionCourseSetupPdf } from '../../pdf/precisionPdf.js';
@@ -198,7 +198,7 @@ function renderPrecisionAdminReadiness() {
         if (hasPrecisionValidationErrors(validation) || engineIssues.size) {
             container.className = 'rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900 dark:border-red-800 dark:bg-red-900/20 dark:text-red-100';
             container.innerHTML = `
-                <div class="font-semibold">Precisionadmin behöver kompletteras</div>
+                <div class="font-semibold">${isArenaLabelContext() ? 'Admin för arenakörning' : 'Precisionadmin'} behöver kompletteras</div>
                 ${totalIssues > 0 ? `<div class="mt-1">
                     ${classIssues > 0 ? `${classIssues} klass${classIssues === 1 ? '' : 'er'} ` : ''}
                     ${globalIssues > 0 ? `${globalIssues} globala fält ` : ''}
@@ -212,7 +212,7 @@ function renderPrecisionAdminReadiness() {
 
         container.className = 'rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-100';
         container.innerHTML = `
-            <div class="font-semibold">Precisionadmin ser redo ut</div>
+            <div class="font-semibold">${isArenaLabelContext() ? 'Admin för arenakörning' : 'Precisionadmin'} ser redo ut</div>
             <div class="mt-1">${activeClassGroups.length} klassgrupper klara${totalIssues === 0 ? ', inga kända valideringsfel.' : '.'}</div>
         `;
     } catch {
@@ -324,7 +324,7 @@ function renderLayout() {
     const defRate = comp?.ruleSettings?.precisionTimePenaltyRate ?? PRECISION_TIME_PENALTY_RATE;
 
     root.innerHTML = `
-        ${getCompetitionHeader(comp, 'Precision – Inställningar')}
+        ${getCompetitionHeader(comp, `${precisionLabel()} – Inställningar`)}
         <div class="max-w-5xl mx-auto p-3 md:p-4 space-y-5">
             <section id="precisionAdminReadiness" class="rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-900/20 dark:text-gray-300">
                 Status laddas...

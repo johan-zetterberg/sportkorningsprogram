@@ -26,7 +26,7 @@ import {
   precisionPlacingScore,
   precisionRoundLabel
 } from './precisionRoundsDisplay.js';
-import { t } from '../../utils/i18n.js';
+import { t, precisionLabel } from '../../utils/i18n.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
 import { vetStrikeChipHtml } from '../../ui/vetStrikeChip.js';
 import { publishedStartTimes } from '../../utils/publishedStartTimes.js';
@@ -282,7 +282,7 @@ function getActiveEquipagesForMap() {
                 activeEquipages.set(sn, {
                     equipageInfo: eq,
                     data: data,
-                    task: { type: 'course', name: 'Precision' }
+                    task: { type: 'course', name: precisionLabel() }
                 });
             }
         }

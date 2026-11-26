@@ -1,4 +1,5 @@
 import { listenForCompetition, getCompetitionById } from '../../services/competitionService.js';
+import { precisionLabel } from '../../utils/i18n.js';
 import { listenForEquipages } from '../../services/equipageService.js';
 import { listenForJudges } from '../../services/adminService.js';
 import { listenForOfficials } from '../../services/officialsService.js';
@@ -432,7 +433,7 @@ function renderLayout(competition) {
   // (Moved to admin-settings.js)
 }
 
-const LOG_DISCIPLINES = { dressage: 'Dressyr', marathon: 'Maraton', precision: 'Precision' };
+const LOG_DISCIPLINES = () => ({ dressage: 'Dressyr', marathon: 'Maraton', precision: precisionLabel() });
 
 function renderFinalizationLog(entries = []) {
   if (!entries.length) {
@@ -444,7 +445,7 @@ function renderFinalizationLog(entries = []) {
     const unlocked = entry.action === 'unfinalize';
     return `<tr class="border-t dark:border-gray-700">
         <td class="py-1.5 pr-3 whitespace-nowrap tabular-nums">${escapeHtml(when)}</td>
-        <td class="py-1.5 pr-3">${escapeHtml(LOG_DISCIPLINES[entry.discipline] || entry.discipline || '')}</td>
+        <td class="py-1.5 pr-3">${escapeHtml(LOG_DISCIPLINES()[entry.discipline] || entry.discipline || '')}</td>
         <td class="py-1.5 pr-3 tabular-nums">#${escapeHtml(entry.startNumber)}</td>
         <td class="py-1.5 pr-3 font-semibold ${unlocked ? 'text-amber-700 dark:text-amber-300' : 'text-green-700 dark:text-green-300'}">${unlocked ? 'Upplåst' : 'Finaliserad'}</td>
         <td class="py-1.5">${escapeHtml(entry.byName || entry.by || '—')}</td>

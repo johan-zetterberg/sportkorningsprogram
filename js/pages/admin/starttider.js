@@ -63,7 +63,7 @@ import { calculateTotalCompetitionPenalties } from '../../utils/sharedUtils.js';
 import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
 import { loadDressageProgramSettings } from '../../services/dressageProgramsService.js';
 import { pickMergeSource } from '../../services/mergeConfigService.js';
-import { t, translateTo } from '../../utils/i18n.js';
+import { t, translateTo, precisionLabel } from '../../utils/i18n.js';
 import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
 import {
     addPauseAfterStartNumber,
@@ -148,10 +148,10 @@ window.__starttiderResizeHandler = window.__starttiderResizeHandler || null;
 // === NYTT: State-variabler och funktioner för sammanslagning ===
 let starttider_displayConfig = {};
 let starttider_MERGE_MAP = new Map();
-const STARTTIDER_DISCIPLINES = [
+const STARTTIDER_DISCIPLINES = () => [
     { key: 'dressage', label: 'Dressyr' },
     { key: 'marathon', label: 'Maraton' },
-    { key: 'precision', label: 'Precision' }
+    { key: 'precision', label: precisionLabel() }
 ];
 
 
@@ -359,7 +359,7 @@ function getStarttiderReadinessSummary() {
     const totalEquipages = equipages.length;
     const publishedState = getPublishedState(startTimes);
 
-    return STARTTIDER_DISCIPLINES.map(({ key, label }) => {
+    return STARTTIDER_DISCIPLINES().map(({ key, label }) => {
         const scheduledCount = equipages.reduce((count, eq) => {
             const sn = String(eq.startNumber);
             return parseDateTime(startTimes?.[sn]?.[key]) ? count + 1 : count;
@@ -963,7 +963,7 @@ function renderMobile() {
                 class: 'Klass:',
                 dressage: 'Dressyr:',
                 marathon: 'Maraton:',
-                precision: 'Precision:',
+                precision: `${precisionLabel()}:`,
                 actions: t('actions')
             },
             unpublishedHtml: '<span class="text-gray-400 italic text-[11px]">Ej publicerad</span>'

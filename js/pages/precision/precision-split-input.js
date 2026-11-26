@@ -14,7 +14,7 @@ import {
     deleteField
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
-import { t } from '../../utils/i18n.js';
+import { t, precisionLabel } from '../../utils/i18n.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
 import { getPrecisionCourseData } from '../../utils/precisionUtils.js';
 import { getPrecisionFormat, isPrecisionDriveOffScheduled } from '../../utils/precisionCalculation.js';
@@ -79,7 +79,7 @@ export function renderLayout() {
         <div class="container mx-auto p-4 md:p-8 max-w-xl">
             <div class="mb-4">
                 ${getCompetitionHeader(comp, isFieldMode
-                    ? 'Precision - manuell passagerapportering'
+                    ? `${precisionLabel()} - manuell passagerapportering`
                     : t('precision_split_header'), { quickGuideRole: 'precision-split' })}
             </div>
             ${renderCompetitionModeBanner(comp, {
@@ -218,7 +218,7 @@ async function undoSplit(gateId) {
 function liveMapDisabledHtml() {
     return `<div class="p-4 rounded-lg border border-amber-200 bg-amber-50 text-amber-900 text-sm dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100 space-y-1">
         <p class="font-bold">${escapeHtml(t('precision_split_live_map_disabled'))}</p>
-        <p>Passager loggas bara när live-kartan med portar är aktiverad (Precision → inställningar). Tid och rivningar registreras i precisionsinmatningen.</p>
+        <p>Passager loggas bara när live-kartan med portar är aktiverad (${precisionLabel()} → inställningar). Tid och rivningar registreras i precisionsinmatningen.</p>
     </div>`;
 }
 

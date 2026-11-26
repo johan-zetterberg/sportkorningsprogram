@@ -23,7 +23,7 @@ import {
 import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
 import { reportRejectedWrite } from '../../services/rejectedWritesService.js';
 import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert, renderNoCompetitionState } from '../../ui/components.js';
-import { t } from '../../utils/i18n.js';
+import { t, precisionLabel } from '../../utils/i18n.js';
 import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
 import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
@@ -703,7 +703,7 @@ function renderLayout() {
         <div class="container mx-auto p-4 md:p-8 max-w-2xl">
             <div class="mb-4">
                 ${getCompetitionHeader(comp, comp?.competitionMode === 'field'
-                    ? 'Precision - manuell registrering'
+                    ? `${precisionLabel()} - manuell registrering`
                     : t('precision_header'), { quickGuideRole: 'precision' })}
             </div>
             ${renderCompetitionModeBanner(comp, {

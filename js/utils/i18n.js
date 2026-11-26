@@ -1260,6 +1260,21 @@ export const DICTIONARY = {
     'push_err_not_enabled': { sv: 'Notiser är inte påslagna på den här enheten.', en: 'Notifications are not on for this device.' },
     'push_err_generic': { sv: 'Något gick fel med notiserna. Försök igen.', en: 'Something went wrong with the notifications. Try again.' },
     'pushp_title': { sv: 'Push-notiser', en: 'Push notifications' },
+    'gadm_title': { sv: 'Administratörer som kan skapa tävlingar', en: 'Administrators who can create competitions' },
+    'gadm_intro': { sv: 'Ge en tävlingsledare rätt att skapa egna tävlingar. Personen behöver ett konto i appen med bekräftad e-postadress.', en: 'Let a competition manager create their own competitions. The person needs an account in the app with a confirmed e-mail address.' },
+    'gadm_warning': { sv: 'Rollen ger också tillgång till att administrera alla tävlingar i appen, även andra klubbars. För en enstaka tävling räcker "Bjud in administratör" under Funktionärer.', en: 'The role also gives access to administer every competition in the app, including other clubs’ competitions. For a single competition, "Invite administrator" under Officials is enough.' },
+    'gadm_email': { sv: 'E-postadress', en: 'E-mail address' },
+    'gadm_add': { sv: 'Ge rätt att skapa tävlingar', en: 'Allow creating competitions' },
+    'gadm_hint': { sv: 'Personen laddar om appen eller loggar in igen för att få menyerna.', en: 'The person reloads the app or signs in again to get the menus.' },
+    'gadm_none': { sv: 'Inga administratörer än.', en: 'No administrators yet.' },
+    'gadm_superadmin': { sv: 'Superadmin', en: 'Superadmin' },
+    'gadm_remove': { sv: 'Ta bort', en: 'Remove' },
+    'gadm_remove_confirm': { sv: 'Ta bort rätten att skapa och administrera tävlingar för {email}? Inbjudningar till enskilda tävlingar påverkas inte.', en: 'Remove the right to create and administer competitions for {email}? Invitations to single competitions are not affected.' },
+    'gadm_added': { sv: '{email} kan nu skapa tävlingar.', en: '{email} can now create competitions.' },
+    'gadm_already': { sv: '{email} kunde redan skapa tävlingar.', en: '{email} could already create competitions.' },
+    'gadm_removed': { sv: '{email} kan inte längre skapa tävlingar.', en: '{email} can no longer create competitions.' },
+    'gadm_failed': { sv: 'Ändringen kunde inte sparas.', en: 'The change could not be saved.' },
+    'gadm_load_failed': { sv: 'Listan kunde inte läsas.', en: 'The list could not be loaded.' },
     'pushp_intro': { sv: 'Notiser till telefonen via appen (Firebase Cloud Messaging). Syns bara för superadmin. Tills nyckeln är sparad och notiserna påslagna ser användarna "Notiser är inte aktiverade ännu".', en: 'Notifications to the phone through the app (Firebase Cloud Messaging). Visible to the superadmin only. Until the key is saved and notifications are switched on, users see "Notifications are not enabled yet".' },
     'pushp_howto_title': { sv: 'Så får du en nyckel', en: 'How to get a key' },
     'pushp_howto_1': { sv: 'Öppna Firebase-konsolen och projektets inställningar (Project settings).', en: 'Open the Firebase console and the project settings.' },
@@ -1939,6 +1954,48 @@ function readUserLanguagePref() {
 
 export function setCompetitionLanguageContext(competition = null) {
     competitionIsInternational = isInternationalCompetition(competition);
+    competitionIsArena = competition?.competitionKind === 'arena';
+}
+
+// An arena competition (competitionKind 'arena') runs on the precision pages:
+// there the discipline is called "Arenakörning" wherever it is shown
+let competitionIsArena = false;
+const ARENA_LABELS = {
+    'tab_precision': { sv: 'Arenakörning', en: 'Arena driving' },
+    'precision': { sv: 'Arenakörning', en: 'Arena driving' },
+    'menu_precision': { sv: 'Arenakörning', en: 'Arena driving' },
+    'starttime_discipline_precision': { sv: 'Arenakörning', en: 'Arena driving' },
+    'secretariat_precision_title': { sv: 'Sekretariat Arenakörning', en: 'Secretariat Arena driving' },
+    'menu_secretariat_precision': { sv: 'Sekretariat Arenakörning', en: 'Secretariat Arena driving' },
+    'menu_admin_precision': { sv: 'Admin Arenakörning', en: 'Arena driving admin' },
+    'compact_title_pos_precision': { sv: 'Placering arenakörning', en: 'Arena driving placing' },
+    'compact_title_prec_knock': { sv: 'Arenakörning: rivningar', en: 'Arena driving: knockdowns' },
+    'compact_title_prec_time': { sv: 'Arenakörning: tidsstraff', en: 'Arena driving: time penalty' },
+    'prize_precision_driveoff_pending': { sv: 'Omkörning återstår – prisutdelningen i arenakörning väntar tills omkörningen är klar.', en: 'Drive-off pending – the arena driving prize-giving waits until the drive-off is finished.' },
+    'precision_monitor_title': { sv: 'Arenakörning – Live Monitor', en: 'Arena driving – Live Monitor' },
+    'precision_result_list_title': { sv: 'Arenakörning – Start- & Resultatlista', en: 'Arena driving – Start & Result List' },
+    'generate_precision': { sv: 'Generera Arenakörning', en: 'Generate Arena driving' },
+    'clear_precision': { sv: 'Rensa Arenakörning', en: 'Clear Arena driving' },
+    'startlist_precision': { sv: 'Startlista Arenakörning', en: 'Startlist Arena driving' },
+    'generate_precision_advanced': { sv: 'Generera startlista för arenakörning', en: 'Generate Arena driving startlist' },
+    'msg_aud_official_precision': { sv: 'Funktionärer – arenakörning', en: 'Officials – arena driving' },
+    'precision_no_obstacles_defined': { sv: 'Inga hinder definierade för denna klass i Admin Arenakörning.', en: 'No obstacles defined for this class in Arena driving admin.' },
+    'precision_header': { sv: 'Arenakörning – Inmatning (live)', en: 'Arena driving – Input (live)' },
+    'precision_split_header': { sv: 'Arenakörning – Gate Observer', en: 'Arena driving – Gate Observer' },
+    'role_precision': { sv: 'Funktionär arenakörning', en: 'Arena driving official' },
+    'official_task_precision': { sv: 'Inmatning Arenakörning', en: 'Arena driving input' },
+    'official_task_precision_judge': { sv: 'Domare arenakörning', en: 'Arena driving judge' },
+    'portal_loading_precision': { sv: 'Laddar arenakörning...', en: 'Loading arena driving...' }
+};
+
+/** True while an arena competition is the current one */
+export function isArenaLabelContext() {
+    return competitionIsArena;
+}
+
+/** "Precision" or, in an arena competition, "Arenakörning" (for labels not in the dictionary) */
+export function precisionLabel(lang = getCurrentLanguage()) {
+    return translateTo('precision', lang);
 }
 
 export function getCurrentLanguage(isInternational = false) {
@@ -1947,7 +2004,8 @@ export function getCurrentLanguage(isInternational = false) {
 
 /** A dictionary label in a given language ('sv' | 'en'); the key if it is missing */
 export function translateTo(key, lang = 'sv') {
-    const entry = DICTIONARY[String(key).toLowerCase()];
+    const normalized = String(key).toLowerCase();
+    const entry = (competitionIsArena && ARENA_LABELS[normalized]) || DICTIONARY[normalized];
     if (!entry) return key;
     return lang === 'en' ? entry.en : entry.sv;
 }

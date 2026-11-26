@@ -1,6 +1,6 @@
 import { getGlobalState } from '../../main.js';
 import { getCompetitionHeader, showAlert, renderNoCompetitionState } from '../../ui/components.js';
-import { t } from '../../utils/i18n.js';
+import { t, precisionLabel } from '../../utils/i18n.js';
 import { vetStrikeChipHtml } from '../../ui/vetStrikeChip.js';
 import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 import {
@@ -540,7 +540,7 @@ async function handleAction(event) {
       if (!drafts.has(sn)) return;
       const patch = collectPatch(rowEl, editBase);
       if (!confirmQualificationChange(editBase, patch)) return;
-      const correction = await askCorrectionReason({ summary: `Precision #${sn}${round === 'phase1' ? '' : ` (${roundLabel(round)})`}` });
+      const correction = await askCorrectionReason({ summary: `${precisionLabel()} #${sn}${round === 'phase1' ? '' : ` (${roundLabel(round)})`}` });
       if (!correction) return;
       await saveSecretariatPrecisionRow(competitionId, sn, patch, correction, { baseRow: editBase, round });
       showAlert(`Ändringar sparade för #${sn}.`);
@@ -555,7 +555,7 @@ async function handleAction(event) {
       if (drafts.has(sn)) {
         const patch = collectPatch(rowEl, editBase);
         if (!confirmQualificationChange(editBase, patch)) return;
-        const correction = await askCorrectionReason({ summary: `Precision #${sn}, före finalisering` });
+        const correction = await askCorrectionReason({ summary: `${precisionLabel()} #${sn}, före finalisering` });
         if (!correction) return;
         await saveSecretariatPrecisionRow(competitionId, sn, patch, correction, { baseRow: editBase, round });
       }
@@ -570,7 +570,7 @@ async function handleAction(event) {
       if (drafts.get(sn)?.__invalid) throw new Error('Rätta ogiltiga värden innan du finaliserar.');
       if (drafts.has(sn)) {
         const patch = collectPatch(rowEl, editBase);
-        const correction = await askCorrectionReason({ summary: `Precision #${sn} (${roundLabel(round)}), före finalisering` });
+        const correction = await askCorrectionReason({ summary: `${precisionLabel()} #${sn} (${roundLabel(round)}), före finalisering` });
         if (!correction) return;
         await saveSecretariatPrecisionRow(competitionId, sn, patch, correction, { baseRow: editBase, round });
       }
@@ -732,7 +732,7 @@ export async function load(container) {
 
   noticesHost?.destroy();
   noticesHost = createStaffNoticesHost({ competitionId });
-  rootEl.innerHTML = '<div class="max-w-4xl mx-auto p-6 text-center text-gray-500">Laddar sekretariat Precision...</div>';
+  rootEl.innerHTML = `<div class="max-w-4xl mx-auto p-6 text-center text-gray-500">Laddar sekretariat ${precisionLabel()}...</div>`;
 
   try {
     await refreshData();

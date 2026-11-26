@@ -14,6 +14,7 @@ import { uploadCompetitionLogo } from '../../services/storageService.js';
 import { getPrivacySettingsHtml, setupPrivacySettings } from './adminPrivacySettings.js';
 import { getEmailProviderCardHtml, setupEmailProviderCard, isSuperadminUser } from './adminEmailProviderCard.js';
 import { getPushCardHtml, setupPushCard } from './adminPushCard.js';
+import { getGlobalAdminsCardHtml, setupGlobalAdminsCard } from './adminGlobalAdminsCard.js';
 import { getGlobalState, setGlobalState, getCompetitionKind } from '../../main.js';
 import { showAlert } from '../../ui/components.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
@@ -1035,6 +1036,9 @@ export function getSettingsHtml() {
 
         ${getPrivacySettingsHtml()}
 
+        <!-- ADMINISTRATÖRER SOM KAN SKAPA TÄVLINGAR (superadmin) -->
+        ${getGlobalAdminsCardHtml()}
+
         <!-- E-POSTTJÄNST (superadmin) -->
         ${getEmailProviderCardHtml()}
 
@@ -1650,7 +1654,7 @@ export async function setupSettingsLogic(competitionId) {
             setupPrivacySettings(competitionId, comp);
         }
         // The app's e-mail provider: superadmin only
-        if (isSuperadminUser(currentUser)) { setupEmailProviderCard(); setupPushCard(); }
+        if (isSuperadminUser(currentUser)) { setupGlobalAdminsCard(); setupEmailProviderCard(); setupPushCard(); }
 
         if (isAllowed) {
             const dz = document.getElementById('dangerZone');

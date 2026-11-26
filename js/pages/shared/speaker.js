@@ -80,7 +80,7 @@ import {
     getSpeakerPenaltyOrNull,
     speakerLeaderboardRanks
 } from './speakerFormatUtils.js';
-import { getCurrentLanguage, t } from '../../utils/i18n.js';
+import { getCurrentLanguage, t, precisionLabel, isArenaLabelContext } from '../../utils/i18n.js';
 import { isVetStrikePending, vetStrikeChipHtml } from '../../ui/vetStrikeChip.js';
 import { mergeUserRoles } from '../../utils/roleAccess.js';
 import { publishedStartTimes } from '../../utils/publishedStartTimes.js';
@@ -605,7 +605,7 @@ function renderLeaderboardSidebar() {
     if (titleEl) {
         if (currentDiscipline === 'maraton') titleEl.textContent = "Maratonställning";
         else if (currentDiscipline === 'dressyr') titleEl.textContent = "Dressyrställning";
-        else if (currentDiscipline === 'precision') titleEl.textContent = "Precisionställning";
+        else if (currentDiscipline === 'precision') titleEl.textContent = isArenaLabelContext() ? `Ställning ${precisionLabel().toLowerCase()}` : "Precisionställning";
         else if (currentDiscipline === 'totalt') titleEl.textContent = "Totalställning";
         else titleEl.textContent = "Ställning";
     }
@@ -714,7 +714,7 @@ function updateDisciplineUI() {
         nav.innerHTML = `
             ${arena ? '' : `<button data-action="switchDiscipline" data-action-args='["dressyr"]' class="flex-1 px-3 py-1.5 rounded-md transition-all ${currentDiscipline === 'dressyr' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm' : 'text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white'}">Dressyr</button>`}
             ${arena ? '' : `<button data-action="switchDiscipline" data-action-args='["maraton"]' class="flex-1 px-3 py-1.5 rounded-md transition-all ${currentDiscipline === 'maraton' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm' : 'text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white'}">Maraton</button>`}
-            <button data-action="switchDiscipline" data-action-args='["precision"]' class="flex-1 px-3 py-1.5 rounded-md transition-all ${currentDiscipline === 'precision' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm' : 'text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white'}">Precision</button>
+            <button data-action="switchDiscipline" data-action-args='["precision"]' class="flex-1 px-3 py-1.5 rounded-md transition-all ${currentDiscipline === 'precision' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm' : 'text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white'}">${precisionLabel()}</button>
             ${arena ? '' : `<button data-action="switchDiscipline" data-action-args='["totalt"]' class="flex-1 px-3 py-1.5 rounded-md transition-all ${currentDiscipline === 'totalt' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm' : 'text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white'}">Totalt</button>`}
             
             <button data-action="startStressTest" data-action-confirm="Starta Stress-test?" class="text-xs px-2 py-1 text-red-300 hover:text-red-500 hover:bg-red-50 rounded hidden" title="Simulera">⚡</button>
@@ -1592,7 +1592,7 @@ function renderCurrentRiderCard() {
                 <!-- Precision Top 3 -->
                 <div class="bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 overflow-hidden text-sm flex flex-col">
                     <div class="bg-indigo-50 dark:bg-indigo-900/40 px-3 py-2 text-xs font-bold text-indigo-800 dark:text-indigo-200 uppercase tracking-wide border-b border-indigo-100 dark:border-indigo-800">
-                        Topp 3 Precision (${safeClassName})
+                        Topp 3 ${precisionLabel()} (${safeClassName})
                     </div>
                     <div class="divide-y divide-gray-100 dark:divide-gray-700 flex-1 overflow-y-auto max-h-[180px]">
                         ${top3.length ? top3.map((r, i) => `
@@ -1666,7 +1666,7 @@ function renderCurrentRiderCard() {
                 
                 <!-- Precision Score -->
                 <div class="bg-white dark:bg-gray-800 p-3 sm:p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col items-center">
-                    <div class="text-xs uppercase font-bold text-gray-600 dark:text-gray-300 mb-1">Precision</div>
+                    <div class="text-xs uppercase font-bold text-gray-600 dark:text-gray-300 mb-1">${precisionLabel()}</div>
                     <div class="text-3xl font-black text-gray-900 dark:text-white">${formatSpeakerPenalty(pPen)}</div>
                 </div>
             </div>

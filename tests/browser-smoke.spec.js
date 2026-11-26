@@ -733,6 +733,9 @@ test('arena competition: created from the hub template, with arena settings and 
     await expect(page.locator(`#nav-links a.nav-link[href="${href}"]`)).toHaveCSS('display', 'none');
   }
   await expect(page.locator('#competitionKindSelect')).toHaveValue('arena');
+  // The precision pages are called Arenakörning in the menu
+  await expect(page.locator('#nav-links [data-i18n="menu_precision"]').first()).toHaveText('Arenakörning');
+  await expect(page.locator('#nav-links a[href="#precision-admin"]').first()).toHaveText('Admin Arenakörning');
 });
 
 test('xml import: entries from a TDB file are saved in an arena competition', async ({ page }) => {
@@ -814,6 +817,44 @@ test('xml import: a new competition from the hub saves the entries and officials
     return (await getEquipages(competitionId)).length;
   }, competitionId);
   expect(imported).toBe(4);
+});
+
+test('global admins: the superadmin lets a confirmed account create competitions', async ({ page }) => {
+  test.setTimeout(180000);
+  await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  // A second account with a confirmed address, made in the auth emulator
+  const authHost = process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099';
+  const projectId = 'demo-combined-driving';
+  const email = `ledare-${Date.now()}@demo.se`;
+  const created = await fetch(`http://${authHost}/identitytoolkit.googleapis.com/v1/projects/${projectId}/accounts`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer owner' },
+    body: JSON.stringify({ email, password: 'ledare123', emailVerified: true })
+  }).then(r => r.json());
+  expect(created.localId).toBeTruthy();
+
+  await page.goto('/index.html#admin?tab=settings');
+  await expect(page.locator('#globalAdminsCard')).toBeVisible({ timeout: 30000 });
+  await page.locator('#gadmEmail').fill(email.toUpperCase());
+  await page.locator('#gadmAddBtn').click();
+  await expect(page.locator('#gadmList')).toContainText(email, { timeout: 30000 });
+  const role = await page.evaluate(async (uid) => {
+    const { db } = await import('../js/config/firebase-config.js');
+    const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js');
+    return (await getDoc(doc(db, 'users', uid))).data()?.role;
+  }, created.localId);
+  expect(role).toBe('admin');
+
+  // An address without an account is refused with an explanation
+  await page.locator('#gadmEmail').fill('finns-inte@demo.se');
+  await page.locator('#gadmAddBtn').click();
+  await expect(page.getByText('Det finns inget konto med den e-postadressen').first()).toBeVisible({ timeout: 30000 });
+  const closeAlert = page.locator('#closeAlertModal');
+  if (await closeAlert.isVisible()) await closeAlert.click();
+
+  // Removed again
+  page.once('dialog', dialog => dialog.accept());
+  await page.locator(`[data-gadm-remove="${email}"]`).click();
+  await expect(page.locator('#gadmList')).not.toContainText(email, { timeout: 30000 });
 });
 
 test('arena driving: knocks and incidents are saved and the class gets its own result list', async ({ page }) => {
