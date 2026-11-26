@@ -857,6 +857,42 @@ test('global admins: the superadmin lets a confirmed account create competitions
   await expect(page.locator('#gadmList')).not.toContainText(email, { timeout: 30000 });
 });
 
+test('arena admin: the course is copied from another class', async ({ page }) => {
+  test.setTimeout(180000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  const classes = await page.evaluate(async (competitionId) => {
+    const { getEquipages } = await import('../js/services/equipageService.js');
+    const { getConfig, saveConfig } = await import('../js/services/competitionService.js');
+    const names = [...new Set((await getEquipages(competitionId)).filter(e => e.status !== 'struken').map(e => e.className))].slice(0, 2);
+    const config = (await getConfig(competitionId, 'precisionConfig')) || {};
+    const courses = { ...(config.courses || {}) };
+    const obstacles = [{ label: '1', type: 'cone' }, { label: 'H1', type: 'marathon' }, { label: '2', type: 'cone' }];
+    courses[names[0]] = { ...(courses[names[0]] || {}), format: 'arena', obstacleLabels: obstacles.map(o => o.label), arena: { rules: 'FEI', competitions: 1, driveOff1: 'top3', obstacles } };
+    courses[names[1]] = { ...(courses[names[1]] || {}), format: 'arena', obstacleLabels: [], arena: { rules: 'FEI', competitions: 1, driveOff1: 'top3', obstacles: [] } };
+    await saveConfig(competitionId, 'precisionConfig', { ...config, courses });
+    return names;
+  }, competitionId);
+
+  await page.goto('/index.html#precision-admin');
+  const target = page.locator(`#classConfigsContainer [data-class-name="${classes[1]}"]`).first();
+  await expect(target.locator('.precision-arena-section')).toBeVisible({ timeout: 30000 });
+  await expect(target.locator('.arena-obstacle-row')).toHaveCount(0);
+  await target.locator('.arena-copy-from').selectOption(classes[0]);
+  await target.locator('[data-arena-action="copy-course"]').click();
+  await expect(target.locator('.arena-obstacle-row')).toHaveCount(3);
+  const copied = await target.evaluate(async (card) => {
+    const { readArenaForm } = await import('/js/pages/precision/precisionArenaAdmin.js');
+    return readArenaForm(card).settings.obstacles;
+  });
+  expect(copied).toEqual([{ label: '1', type: 'cone' }, { label: 'H1', type: 'marathon' }, { label: '2', type: 'cone' }]);
+
+  // A class that already has obstacles asks before they are replaced
+  await target.locator('.arena-obstacle-label').first().fill('X');
+  page.once('dialog', dialog => dialog.dismiss());
+  await target.locator('[data-arena-action="copy-course"]').click();
+  await expect(target.locator('.arena-obstacle-label').first()).toHaveValue('X');
+});
+
 test('arena driving: knocks and incidents are saved and the class gets its own result list', async ({ page }) => {
   test.setTimeout(300000);
   const shot = async (name) => {

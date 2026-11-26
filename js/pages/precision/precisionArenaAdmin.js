@@ -116,6 +116,12 @@ export function renderArenaSection(raw, hidden = true) {
                     </label>
                     <button type="button" data-arena-action="add-cones" class="${BUTTON_CLASS}">${escapeHtml(t('arena_admin_add_cones'))}</button>
                 </div>
+                <div class="arena-copy-wrap mt-3 flex flex-wrap items-end gap-2 hidden">
+                    <label class="block text-xs text-gray-600 dark:text-gray-300">${escapeHtml(t('arena_admin_copy_from'))}
+                        <select class="arena-copy-from mt-1 p-1.5 border rounded-md text-sm dark:bg-gray-600 dark:border-gray-500 dark:text-white"></select>
+                    </label>
+                    <button type="button" data-arena-action="copy-course" class="${BUTTON_CLASS}">${escapeHtml(t('arena_admin_copy_course'))}</button>
+                </div>
             </div>
         </div>`;
 }
@@ -160,6 +166,54 @@ export function updateArenaSection(card) {
     get('.arena-timing2-wrap').classList.toggle('hidden', do2.value === 'none');
 
     get('.arena-obstacles-empty').classList.toggle('hidden', section.querySelectorAll('.arena-obstacle-row').length > 0);
+    updateArenaCopyOptions(section);
+}
+
+// The other classes' cards (the course can be copied from any of them)
+function otherClassCards(section) {
+    const card = section.closest('[data-class-name]');
+    const container = card?.parentElement?.closest('#classConfigsContainer') || document;
+    return [...container.querySelectorAll('[data-class-name]')].filter(other => other !== card && other.querySelector('.precision-arena-section'));
+}
+
+function updateArenaCopyOptions(section) {
+    const select = section.querySelector('.arena-copy-from');
+    if (!select) return;
+    const names = otherClassCards(section).map(card => card.dataset.className);
+    const current = select.value;
+    select.innerHTML = `<option value="">${escapeHtml(t('arena_admin_copy_choose'))}</option>`
+        + names.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+    if (names.includes(current)) select.value = current;
+    section.querySelector('.arena-copy-wrap')?.classList.toggle('hidden', names.length === 0);
+}
+
+/** The obstacles of a section as shown in its form: [{ label, type }] */
+function obstaclesInSection(section) {
+    return [...section.querySelectorAll('.arena-obstacle-row')]
+        .map(row => ({
+            label: row.querySelector('.arena-obstacle-label').value.trim(),
+            type: row.querySelector('.arena-obstacle-type').value
+        }))
+        .filter(o => o.label);
+}
+
+// Copies the course (obstacles and cone pairs, in order) of another class
+// into this one. Rules, rounds and seconds are left as they are
+function copyCourseInto(section) {
+    const name = section.querySelector('.arena-copy-from')?.value || '';
+    if (!name) {
+        window.alert(t('arena_admin_copy_pick_class'));
+        return;
+    }
+    const source = otherClassCards(section).find(card => card.dataset.className === name);
+    const obstacles = source ? obstaclesInSection(source.querySelector('.precision-arena-section')) : [];
+    if (!obstacles.length) {
+        window.alert(t('arena_admin_copy_source_empty'));
+        return;
+    }
+    const list = section.querySelector('.arena-obstacle-list');
+    if (list.querySelector('.arena-obstacle-row') && !window.confirm(t('arena_admin_copy_replace_confirm').replace('{className}', name))) return;
+    list.innerHTML = obstacles.slice(0, MAX_OBSTACLES).map(obstacleRowHtml).join('');
 }
 
 /**
@@ -181,6 +235,8 @@ export function handleArenaClick(event) {
             list.insertAdjacentHTML('beforeend', obstacleRowHtml({ label: '', type: 'cone' }));
             list.lastElementChild?.querySelector('.arena-obstacle-label')?.focus();
         }
+    } else if (action === 'copy-course') {
+        copyCourseInto(section);
     } else if (action === 'add-cones') {
         // Numbered cones, skipping labels already in use
         const used = new Set([...list.querySelectorAll('.arena-obstacle-label')].map(input => input.value.trim().toLowerCase()));
@@ -217,12 +273,7 @@ export function readArenaForm(card) {
     const driveOff1 = get('.arena-driveoff1').value;
     const driveOff2 = competitions === 2 ? get('.arena-driveoff2').value : 'none';
 
-    const obstacles = [...section.querySelectorAll('.arena-obstacle-row')]
-        .map(row => ({
-            label: row.querySelector('.arena-obstacle-label').value.trim(),
-            type: row.querySelector('.arena-obstacle-type').value
-        }))
-        .filter(o => o.label);
+    const obstacles = obstaclesInSection(section);
 
     const settings = { rules, competitions, driveOff1 };
     if (driveOff1 !== 'none') settings.driveOff1Timing = get('.arena-timing1').value;
