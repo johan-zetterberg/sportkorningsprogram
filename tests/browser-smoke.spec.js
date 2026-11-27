@@ -998,6 +998,29 @@ test('prize-giving: a timed arena class gets its placings', async ({ page }) => 
   await expect(page.locator('#prize-giving-content')).toContainText(setup.winner, { timeout: 30000 });
 });
 
+test('precision admin: course length and obstacles are copied from another class', async ({ page }) => {
+  test.setTimeout(180000);
+  await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  await page.goto('/index.html#precision-admin');
+  const cards = page.locator('#classConfigsContainer .precision-admin-card');
+  await expect(cards.nth(1)).toBeVisible({ timeout: 30000 });
+  const source = cards.nth(0);
+  const target = cards.nth(1);
+  const sourceName = await source.getAttribute('data-class-name');
+  await source.locator('.track-length-input').fill('612');
+  await source.locator('.obstacle-labels-input').fill('1, 2, 3, 4A, 4B');
+  const tempoBefore = await target.locator('.tempo-override-input').inputValue();
+
+  page.once('dialog', dialog => dialog.accept());
+  await target.locator('.course-copy-from').selectOption(sourceName);
+  await target.locator('.course-copy-btn').click();
+  await expect(target.locator('.track-length-input')).toHaveValue('612');
+  await expect(target.locator('.obstacle-labels-input')).toHaveValue('1, 2, 3, 4A, 4B');
+  // The tempo is the class's own; the special ports follow the new labels
+  await expect(target.locator('.tempo-override-input')).toHaveValue(tempoBefore);
+  await expect(target.locator('.special-port-input[data-label="4B"]')).toHaveCount(1);
+});
+
 test('arena driving: knocks and incidents are saved and the class gets its own result list', async ({ page }) => {
   test.setTimeout(300000);
   const shot = async (name) => {

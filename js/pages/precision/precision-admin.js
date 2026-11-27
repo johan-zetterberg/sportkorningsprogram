@@ -633,6 +633,62 @@ function updatePrecisionRoundSections(card) {
     if (host) host.innerHTML = warnings.map(w => `<p>${escapeHtml(textFor(w))}</p>`).join('');
 }
 
+// "Kopiera banlängd och hinder från klass" (precision, not arena: the arena
+// block has its own copy of the course). The tempo is the class's own (rules)
+// and the special ports follow each class's port width: neither is copied
+function renderCourseCopyField(className) {
+    const others = activeClassGroups.map(group => group.label).filter(label => label !== className);
+    if (!others.length) return '';
+    return `
+                <div class="precision-nonarena mt-2 flex flex-wrap items-end gap-2">
+                    <label class="block text-xs text-gray-600 dark:text-gray-300">${escapeHtml(t('precision_admin_copy_from'))}
+                        <select class="course-copy-from mt-1 p-1.5 border rounded-md text-sm dark:bg-gray-600 dark:border-gray-500 dark:text-white">
+                            <option value="">${escapeHtml(t('arena_admin_copy_choose'))}</option>
+                            ${others.map(label => `<option value="${escapeHtml(label)}">${escapeHtml(label)}</option>`).join('')}
+                        </select>
+                    </label>
+                    <button type="button" class="course-copy-btn px-3 py-1.5 rounded-md text-xs font-bold border border-blue-200 text-blue-700 bg-white hover:bg-blue-50 dark:bg-gray-700 dark:border-blue-800 dark:text-blue-300">${escapeHtml(t('precision_admin_copy_btn'))}</button>
+                </div>`;
+}
+
+// Copies the track length and obstacle labels (phase 1, and phase 2 /
+// drive-off when the source has them) of another class's form into this card
+function copyCourseFields(card) {
+    if (!card) return;
+    const name = card.querySelector('.course-copy-from')?.value || '';
+    if (!name) {
+        window.alert(t('arena_admin_copy_pick_class'));
+        return;
+    }
+    const source = [...document.querySelectorAll('#classConfigsContainer [data-class-name]')].find(el => el.dataset.className === name);
+    if (!source) return;
+    const fields = [
+        '.track-length-input',
+        '.obstacle-labels-input',
+        '.round-length-input[data-round="phase2"]',
+        '.round-labels-input[data-round="phase2"]',
+        '.round-length-input[data-round="driveOff"]',
+        '.round-labels-input[data-round="driveOff"]'
+    ];
+    const values = fields
+        .map(selector => ({ selector, value: source.querySelector(selector)?.value?.trim() ?? '' }))
+        .filter(item => item.value !== '');
+    if (!values.length) {
+        window.alert(t('precision_admin_copy_source_empty'));
+        return;
+    }
+    const hasOwn = values.some(({ selector }) => (card.querySelector(selector)?.value?.trim() ?? '') !== '');
+    if (hasOwn && !window.confirm(t('precision_admin_copy_confirm').replace('{className}', name))) return;
+    for (const { selector, value } of values) {
+        const target = card.querySelector(selector);
+        if (!target) continue;
+        target.value = value;
+        // The max time, the special ports and the course warnings follow the input
+        target.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    renderPrecisionAdminReadiness();
+}
+
 function renderClassCards() {
     const container = document.getElementById('classConfigsContainer');
     if (!container) return;
@@ -702,6 +758,7 @@ function renderClassCards() {
             <div class="precision-admin-card p-3 md:p-4 border-2 rounded-lg bg-gray-50 dark:bg-gray-800 dark:border-gray-700" data-class-name="${escapeHtml(className)}" data-bulk-group-id="${escapeHtml(bulkGroupId)}">
                 <h4 class="text-lg font-bold text-gray-800 dark:text-white">${escapeHtml(className)}</h4>
                 ${sourceClassLabel}
+                ${renderCourseCopyField(className)}
                 <div class="grid grid-cols-1 xl:grid-cols-3 gap-3 mt-3">
                     <div>
                         <label class="block text-sm font-medium dark:text-gray-300">Port-tillägg (cm)</label>
@@ -807,6 +864,7 @@ function renderClassCards() {
     // Obstacle list buttons of the arena block
     container.onclick = (e) => {
         if (handleArenaClick(e)) renderPrecisionAdminReadiness();
+        else if (e.target.closest('.course-copy-btn')) copyCourseFields(e.target.closest('[data-class-name]'));
     };
     container.querySelectorAll('.precision-admin-card').forEach(updatePrecisionRoundSections);
 
