@@ -1140,6 +1140,44 @@ test('arena driving: knocks and incidents are saved and the class gets its own r
   await shot('arena-results');
 });
 
+test('arena results: the live panel clock ticks while a round runs', async ({ page }) => {
+  test.setTimeout(180000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  const sn = await page.evaluate(async (competitionId) => {
+    const { getEquipages } = await import('../js/services/equipageService.js');
+    const { getPrecisionResults } = await import('../js/services/precisionService.js');
+    const { getConfig, saveConfig } = await import('../js/services/competitionService.js');
+    const { db, appId } = await import('../js/config/firebase-config.js');
+    const { doc, setDoc } = await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js');
+    const equipages = (await getEquipages(competitionId)).filter(e => e.status !== 'struken');
+    const used = new Set((await getPrecisionResults(competitionId)).map(r => String(r.id)));
+    const eq = equipages.find(e => !used.has(String(e.startNumber))) || equipages[0];
+    const config = (await getConfig(competitionId, 'precisionConfig')) || {};
+    const courses = { ...(config.courses || {}) };
+    courses[eq.className] = {
+      ...(courses[eq.className] || {}),
+      format: 'arena',
+      obstacleLabels: ['1', '2'],
+      arena: { rules: 'FEI', competitions: 1, driveOff1: 'top3', obstacles: [{ label: '1', type: 'cone' }, { label: '2', type: 'marathon' }] }
+    };
+    await saveConfig(competitionId, 'precisionConfig', { ...config, courses });
+    await setDoc(doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/precision/${eq.startNumber}`), {
+      startNumber: Number(eq.startNumber), className: eq.className,
+      running: true, inProgress: true, status: 'Pågår', liveStartEpoch: Date.now() - 5000, livePausedMs: 0,
+      knocks: ['2'], updatedAt: Date.now()
+    }, { merge: true });
+    return String(eq.startNumber);
+  }, competitionId);
+
+  await page.goto('/index.html#precision-results');
+  const timer = page.locator(`#livePanelTimer-${sn}, #livePanelTimer-mob-${sn}`).locator('visible=true').first();
+  await expect(timer).toBeVisible({ timeout: 30000 });
+  await expect(timer).not.toHaveText(/^\s*00:00,00\s*$/, { timeout: 10000 });
+  const first = (await timer.textContent()).trim();
+  await page.waitForTimeout(1500);
+  expect((await timer.textContent()).trim()).not.toBe(first);
+});
+
 test('precision results and PDF show phase 2 of a two-phase class', async ({ page }) => {
   test.setTimeout(300000);
   const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });

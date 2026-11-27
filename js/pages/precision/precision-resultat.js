@@ -48,6 +48,7 @@ import {
   buildOverallStandingPerGroup,
   getToBeatInfo,
   calculatePrecisionResult,
+  calculatePrecisionLiveResult,
   isPrecisionClearRound,
   precisionFormatWarning
 } from '../../utils/precisionUtils.js';
@@ -571,9 +572,13 @@ function stopTicker() {
 function tickPrecisionTimers() {
   let anyRunning = false;
   precision_precisionMap.forEach((data, sn) => {
-    // Arena lists have no ticking cells (no max time): they follow the snapshots
+    // Arena lists have no ticking cells (no max time): they follow the
+    // snapshots; the live panel's clock and result seconds tick
     const tickEq = precision_equipages.find((e) => String(e.startNumber) === sn);
-    if (tickEq && isArenaEquipage(tickEq, precision_precisionConfig)) return;
+    if (tickEq && isArenaEquipage(tickEq, precision_precisionConfig)) {
+      if (tickArenaLivePanel(sn, data, tickEq)) anyRunning = true;
+      return;
+    }
     const runningRound = runningPrecisionRound(data);
     if (data && runningRound && readPrecisionRound(data, runningRound).liveStartEpoch) {
       anyRunning = true;
@@ -668,6 +673,27 @@ function tickPrecisionTimers() {
   });
 
   if (!anyRunning) stopTicker();
+}
+
+// The running arena round on the live panel: the time and the result seconds
+// (time + penalty seconds); true while a round's clock runs
+function tickArenaLivePanel(sn, data, eq) {
+  const round = runningPrecisionRound(data);
+  if (!data || !round) return false;
+  const roundDoc = readPrecisionRound(data, round);
+  if (!roundDoc.liveStartEpoch) return false;
+  const now = Date.now();
+  const elapsedMs = (Number(roundDoc.livePausedMs) || 0) + (now - Number(roundDoc.liveStartEpoch));
+  if (!Number.isFinite(elapsedMs)) return false;
+  const timeLabel = msToLabel(elapsedMs);
+  let scoreLabel = null;
+  try {
+    const live = calculatePrecisionLiveResult(data, eq, precision_precisionConfig || {}, now);
+    const score = live?.rounds?.[round]?.score;
+    if (isNum(score)) scoreLabel = formatPrecisionSeconds(score);
+  } catch { /* the snapshot's value stays */ }
+  updateLivePanelTimer(sn, timeLabel, scoreLabel, null, formatPrecisionTimeTooltip(timeLabel, elapsedMs));
+  return true;
 }
 
 function renderLiveStatusPanel() {
