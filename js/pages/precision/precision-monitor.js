@@ -35,6 +35,8 @@ import { compareByTimeThenStartNumber } from '../../utils/startNumberSort.js';
 import { enterTvModeIfRequested, exitTvMode, tvModeLinkHtml } from '../shared/tvMode.js';
 import { createConnectionBanner, resilientSnapshot } from '../../services/listenerErrorUtils.js';
 import { renderMap, destroyMap } from './precision-monitor-map.js';
+import { arenaMapData } from '../../utils/arenaChecks.js';
+import { listenArenaChecks } from '../../services/arenaCheckService.js';
 import {
   formatPrecisionMonitorPartPenalty,
   formatPrecisionMonitorPenalty
@@ -258,6 +260,14 @@ function roundScoreText(view, total, eliminated) {
     return formatPrecisionMonitorPenalty(total, { eliminated: false });
 }
 
+// Arena: the obstacle controllers' passages (arenaChecks) are the split
+// times the map and the split list follow; other classes use their own doc
+let arenaCheckList = [];
+function liveDataFor(eq, data) {
+    if (!eq || getPrecisionFormat(eq, precisionConfig) !== 'arena') return data;
+    return arenaMapData(data, arenaCheckList, eq.startNumber, currentPrecisionRound(data) || 'phase1');
+}
+
 function getActiveEquipagesForMap() {
     const activeEquipages = new Map();
     const now = Date.now();
@@ -281,7 +291,7 @@ function getActiveEquipagesForMap() {
             if (eq) {
                 activeEquipages.set(sn, {
                     equipageInfo: eq,
-                    data: data,
+                    data: liveDataFor(eq, data),
                     task: { type: 'course', name: precisionLabel() }
                 });
             }
@@ -391,9 +401,9 @@ function renderCurrentDriver() {
                         ` : ''}
                     </div>
                     
-                    <div id="live-splits-container" class="${Object.keys(data.gateSplits || {}).length > 0 ? 'border-t dark:border-gray-600 mt-3 pt-2' : ''}">
+                    <div id="live-splits-container" class="${Object.keys(liveDataFor(eq, data).gateSplits || {}).length > 0 ? 'border-t dark:border-gray-600 mt-3 pt-2' : ''}">
                         ${(() => {
-                            const splits = data.gateSplits || {};
+                            const splits = liveDataFor(eq, data).gateSplits || {};
                             const keys = Object.keys(splits).filter(k => k === 'start' || k === 'finish' || k.startsWith('gate_'));
                             if (keys.length === 0) return '';
                             
@@ -488,7 +498,7 @@ function renderCurrentDriver() {
     
     const splitsEl = document.getElementById('live-splits-container');
     if (splitsEl) {
-        const splits = data.gateSplits || {};
+        const splits = liveDataFor(eq, data).gateSplits || {};
         const keys = Object.keys(splits).filter(k => k === 'start' || k === 'finish' || k.startsWith('gate_'));
         
         if (keys.length > 0) {
@@ -908,6 +918,16 @@ function listenForUpdates() {
     }
   });
   unsubscribes.push(unsub);
+
+  // Arena classes: the obstacle controllers' passages move the equipage on
+  // the map and fill the split list
+  if (allEquipages.some(eq => getPrecisionFormat(eq, precisionConfig) === 'arena')) {
+    arenaCheckList = [];
+    unsubscribes.push(listenArenaChecks(competitionId, (list) => {
+      arenaCheckList = list;
+      forceFullRender();
+    }));
+  }
 }
 
 const connectionBanner = createConnectionBanner(() => document.querySelector('#page-precision-monitor .container'));

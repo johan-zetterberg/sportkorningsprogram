@@ -1070,12 +1070,15 @@ service cloud.firestore {
     }
 
     function isArenaCheckWrite(d) {
-      return d.keys().hasOnly(['startNumber', 'className', 'round', 'obstacle', 'result', 'knocks', 'by', 'at', 'updatedAt', 'applied'])
+      return d.keys().hasOnly(['startNumber', 'className', 'round', 'obstacle', 'result', 'knocks', 'by', 'at', 'updatedAt', 'applied',
+          'route', 'passMs', 'passAt'])
         && d.startNumber is number
         && d.round in ['phase1', 'driveOff', 'phase2', 'driveOff2']
         && d.obstacle is string && d.obstacle.size() > 0 && d.obstacle.size() <= 12
         && (d.get('result', null) == null || d.result in ['ok', 'wrongCorrected', 'wrongUncorrected'])
-        && d.knocks is int && d.knocks >= 0 && d.knocks <= 20
+        && d.get('knocks', 0) is int && d.get('knocks', 0) >= 0 && d.get('knocks', 0) <= 20
+        // The route through a marathon-type obstacle ({ g, ms, at } per gate) and a passage's split time
+        && optList(d, 'route', 40) && optNumber(d, 'passMs') && optNumber(d, 'passAt')
         && optString(d, 'className', 200) && optString(d, 'by', 128)
         && optNumber(d, 'at') && optNumber(d, 'updatedAt')
         && (d.get('applied', null) == null

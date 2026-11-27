@@ -121,10 +121,16 @@ export function normalizeArenaSettings(raw = {}) {
 
     const obstacles = Array.isArray(r.obstacles)
         ? r.obstacles
-            .map((o) => ({
-                label: String(o?.label ?? '').trim().slice(0, 12),
-                type: oneOf(o?.type, ARENA_OBSTACLE_TYPES, 'cone')
-            }))
+            .map((o) => {
+                const type = oneOf(o?.type, ARENA_OBSTACLE_TYPES, 'cone');
+                const gates = Number(o?.gates);
+                return {
+                    label: String(o?.label ?? '').trim().slice(0, 12),
+                    type,
+                    // A marathon-type obstacle's gates (A-F by default), for the obstacle controller's route
+                    ...(type === 'marathon' && Number.isInteger(gates) && gates >= 1 && gates <= 12 ? { gates } : {})
+                };
+            })
             .filter((o) => o.label)
             .slice(0, 40)
         : [];

@@ -1,7 +1,12 @@
 // js/pdf/precisionPdf.js
 import { normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService.js';
 import { getClubLogoUrl, fetchImageDataUrl, ensureClubLogosLoaded } from '../services/logosService.js';
-import { sanitizeForFilename, fmt2, horseLabel } from '../utils/sharedUtils.js';
+import { sanitizeForFilename, fmt2, horseLabel, msToLabel } from '../utils/sharedUtils.js';
+import { getGlobalState } from '../main.js';
+import { arenaSplitsByRound } from '../utils/arenaChecks.js';
+import { arenaRoundsOf } from '../utils/arenaRules.js';
+import { getArenaChecksFor } from '../services/arenaCheckService.js';
+import { precisionRoundLabelKey } from '../pages/precision/precisionRoundInput.js';
 import { getCalculatedRowData, buildPrecisionPlaceInfo, startTimeFor, computeMaxSecondsForClass, computePortWidth, trackWidthFromEq, getPortAllowanceCm, getStandardPortWidth, getPrecisionDisplayClassName, precisionFormatWarning } from '../utils/precisionUtils.js';
 import { loadPdfLibs, loadImg, drawStandardHeader, drawResultStatusFooter, loadStandardHeaderLogos } from './pdfBase.js';
 import { resolveResultListStatus } from './pdfResultStatus.js';
@@ -229,6 +234,41 @@ export async function generateAndPrintPdf(eq, d, equipages, precisionMap, config
       ...commonTableOpts
     });
     y = pdf.lastAutoTable.finalY + 12;
+  }
+
+  // 7b. ARENA: the obstacle controllers' split times (passages, routes)
+  if (getPrecisionFormat(eq, config) === 'arena') {
+    const arenaSettings = getArenaSettings(eq, config);
+    const arenaRounds = arenaRoundsOf(arenaSettings);
+    const checks = await getArenaChecksFor(pdfCompetition?.id || getGlobalState('currentCompetition')?.id, eq.startNumber);
+    const byRound = arenaSplitsByRound(checks, eq.startNumber, arenaSettings.obstacles, arenaRounds);
+    const roundName = (round) => t(precisionRoundLabelKey(round, 'arena', arenaSettings));
+    const split = (ms) => (Number.isFinite(ms) ? msToLabel(ms) : '–');
+    const passageRows = byRound.flatMap((r) => r.passages.map((p) => [roundName(r.round), p.label, split(p.ms)]));
+    if (passageRows.length) {
+      pdf.autoTable({
+        startY: y,
+        head: [[t('arena_splits_round'), t('arena_splits_obstacle'), t('arena_splits_split')]],
+        body: passageRows,
+        ...commonTableOpts
+      });
+      y = pdf.lastAutoTable.finalY + 12;
+    }
+    const routeRows = byRound.flatMap((r) => r.routes.map((route) => [
+      roundName(r.round),
+      route.label,
+      route.gates.map((g) => `${g.g} ${split(g.ms)}`).join(', '),
+      Number.isFinite(route.ms) ? msToLabel(route.ms) : '–'
+    ]));
+    if (routeRows.length) {
+      pdf.autoTable({
+        startY: y,
+        head: [[t('arena_splits_round'), t('arena_splits_obstacle'), t('ao_route'), t('ao_obstacle_time')]],
+        body: routeRows,
+        ...commonTableOpts
+      });
+      y = pdf.lastAutoTable.finalY + 12;
+    }
   }
 
   // 8. SPARA FIL

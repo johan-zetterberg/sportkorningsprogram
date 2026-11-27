@@ -23,11 +23,11 @@ import {
 import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
 import { reportRejectedWrite } from '../../services/rejectedWritesService.js';
 import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert, renderNoCompetitionState } from '../../ui/components.js';
-import { arenaCheckPending, arenaCheckPendingSeconds, normalizeArenaCheck } from '../../utils/arenaChecks.js';
+import { arenaCheckPending, arenaCheckPendingSeconds, arenaRouteText, arenaRouteTimeMs, normalizeArenaCheck } from '../../utils/arenaChecks.js';
 import { listenArenaChecks, markArenaCheckApplied } from '../../services/arenaCheckService.js';
 import { t, precisionLabel } from '../../utils/i18n.js';
 import { registerUnsavedWork } from '../../utils/unsavedWork.js';
-import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
+import { downloadJson, escapeHtml, msToLabel } from '../../utils/sharedUtils.js';
 import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
 import { PRECISION_KNOCKDOWN_PENALTY } from '../../core-engine/rules-ledger.js';
 import {
@@ -1148,7 +1148,7 @@ function arenaChecksShown() {
     const sn = String(currentEquipage.startNumber);
     return [...arenaChecks.values()]
         .map((raw) => ({ raw, c: normalizeArenaCheck(raw) }))
-        .filter(({ c }) => c && c.startNumber === sn && c.round === currentRound && (c.result || c.knocks))
+        .filter(({ c }) => c && c.startNumber === sn && c.round === currentRound && (c.result || c.knocks || c.route.length))
         .sort((a, b) => a.c.obstacle.localeCompare(b.c.obstacle, 'sv', { numeric: true }));
 }
 
@@ -1166,6 +1166,10 @@ function renderArenaChecks() {
         <ul class="space-y-2">${list.map(({ raw, c }) => {
             const pending = arenaCheckPending(raw);
             const parts = [];
+            if (c.route.length) {
+                const routeMs = arenaRouteTimeMs(c.route);
+                parts.push(`${arenaRouteText(c.route)}${routeMs != null ? ` (${msToLabel(routeMs)})` : ''}`);
+            }
             if (c.result === 'ok') parts.push(`✓ ${t('ao_ok')}`);
             if (c.result === 'wrongCorrected') parts.push(t('ao_wrong_corrected'));
             if (c.result === 'wrongUncorrected') parts.push(t('ao_wrong_uncorrected'));

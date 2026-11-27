@@ -40,6 +40,9 @@ function obstacleRowHtml(obstacle = {}) {
             <label class="block w-40 text-xs text-gray-600 dark:text-gray-300">${escapeHtml(t('arena_admin_obstacle_type'))}
                 ${selectHtml('arena-obstacle-type', typeOptions, obstacle.type || 'cone')}
             </label>
+            <label class="arena-obstacle-gates-wrap block w-20 text-xs text-gray-600 dark:text-gray-300 ${obstacle.type === 'marathon' ? '' : 'hidden'}">${escapeHtml(t('arena_admin_obstacle_gates'))}
+                <input type="number" min="1" max="12" value="${escapeHtml(String(obstacle.gates ?? 6))}" class="arena-obstacle-gates ${INPUT_CLASS}">
+            </label>
             <button type="button" data-arena-action="remove-obstacle" class="${BUTTON_CLASS}">${escapeHtml(t('arena_admin_remove_obstacle'))}</button>
         </div>`;
 }
@@ -181,6 +184,10 @@ export function updateArenaSection(card) {
     get('.arena-timing2-wrap').classList.toggle('hidden', do2.value === 'none');
 
     get('.arena-obstacles-empty').classList.toggle('hidden', section.querySelectorAll('.arena-obstacle-row').length > 0);
+    // The gate count only for marathon-type obstacles
+    section.querySelectorAll('.arena-obstacle-row').forEach((row) => {
+        row.querySelector('.arena-obstacle-gates-wrap')?.classList.toggle('hidden', row.querySelector('.arena-obstacle-type')?.value !== 'marathon');
+    });
     updateArenaCopyOptions(section);
 }
 
@@ -205,10 +212,15 @@ function updateArenaCopyOptions(section) {
 /** The obstacles of a section as shown in its form: [{ label, type }] */
 function obstaclesInSection(section) {
     return [...section.querySelectorAll('.arena-obstacle-row')]
-        .map(row => ({
-            label: row.querySelector('.arena-obstacle-label').value.trim(),
-            type: row.querySelector('.arena-obstacle-type').value
-        }))
+        .map(row => {
+            const type = row.querySelector('.arena-obstacle-type').value;
+            const gates = Math.floor(Number(row.querySelector('.arena-obstacle-gates')?.value));
+            return {
+                label: row.querySelector('.arena-obstacle-label').value.trim(),
+                type,
+                ...(type === 'marathon' && gates >= 1 && gates <= 12 && gates !== 6 ? { gates } : {}) // A-F (6) is the default
+            };
+        })
         .filter(o => o.label);
 }
 

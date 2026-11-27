@@ -1812,6 +1812,11 @@ test('arena obstacle controllers: precision officials write reports, others may 
   await assertSucceeds(setDoc(ref, report, { merge: true }));
   // The judge marks what was added
   await assertSucceeds(setDoc(ref, { applied: { knocks: 1, wrongCourse: true }, updatedAt: Date.now() }, { merge: true }));
+  // The route through the obstacle and a passage with split times (a passage-only report has no knocks)
+  await assertSucceeds(setDoc(ref, { route: [{ g: 'A', ms: 1000, at: Date.now() }, { g: 'b', ms: 2000, at: Date.now() }] }, { merge: true }));
+  await assertSucceeds(setDoc(doc(db, compPath('arenaChecks/101__phase1__3')), { startNumber: 101, round: 'phase1', obstacle: '3', passMs: 12340, passAt: Date.now(), by: 'arena-ctrl-1', at: Date.now(), updatedAt: Date.now() }));
+  await assertFails(setDoc(ref, { route: Array.from({ length: 41 }, () => ({ g: 'A' })) }, { merge: true }));
+  await assertFails(setDoc(ref, { passMs: '12' }, { merge: true }));
 
   await assertFails(setDoc(ref, { result: 'maybe' }, { merge: true }));
   await assertFails(setDoc(ref, { knocks: 21 }, { merge: true }));

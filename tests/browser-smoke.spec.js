@@ -1251,7 +1251,7 @@ test('arena obstacle control: the controller reports at H1, the judge adds the p
     const startNumber = Math.max(0, ...(await getEquipages(competitionId)).map(e => Number(e.startNumber) || 0)) + 1;
     await saveEquipage(competitionId, String(startNumber), { startNumber, driverName: 'Kontroll Kusk', className, status: 'anmäld', horses: [{ name: 'Häst K' }] });
     const config = (await getConfig(competitionId, 'precisionConfig')) || {};
-    const obstacles = [{ label: '1', type: 'cone' }, { label: 'H1', type: 'marathon' }, { label: '2', type: 'cone' }];
+    const obstacles = [{ label: '1', type: 'cone' }, { label: 'H1', type: 'marathon', gates: 4 }, { label: '2', type: 'cone' }];
     const courses = { ...(config.courses || {}), [className]: { format: 'arena', obstacleLabels: obstacles.map(o => o.label), arena: { rules: 'FEI', obstacles } } };
     await saveConfig(competitionId, 'precisionConfig', { ...config, courses });
     // On the course
@@ -1264,7 +1264,24 @@ test('arena obstacle control: the controller reports at H1, the judge adds the p
   // The controller: H1 is the only control obstacle; the equipage on the course is followed
   await page.goto('/index.html#arena-obstacle');
   await expect(page.locator('#ao-obstacle')).toHaveValue('H1', { timeout: 30000 });
-  await expect(page.locator('#ao-current')).toContainText(`#${picked.startNumber}`, { timeout: 30000 });
+  // Other tests' arena equipages may also be on the course: pick ours by hand
+  const pickEquipage = async () => {
+    const aoSearch = page.locator('#ao-search .search-input');
+    await expect(aoSearch).toBeVisible({ timeout: 30000 });
+    await aoSearch.fill(picked.startNumber);
+    await page.locator(`#ao-search .searchable-dropdown-list [data-value="${picked.startNumber}"]`).click();
+    await expect(page.locator('#ao-current')).toContainText(`#${picked.startNumber}`, { timeout: 30000 });
+  };
+  await pickEquipage();
+  // The route as in the marathon: four gates (A-D), capital forwards, small backwards
+  await expect(page.locator('[data-ao-gate="D"]')).toBeVisible();
+  await expect(page.locator('[data-ao-gate="E"]')).toHaveCount(0);
+  for (const g of ['A', 'B', 'b', 'B']) {
+    await page.locator(`[data-ao-gate="${g}"]`).click();
+    await page.waitForTimeout(150);
+  }
+  await expect(page.locator('#ao-route')).toHaveText(/A\s+B\s+b\s+B/);
+  await expect(page.locator('#ao-routeTime')).toBeVisible();
   await page.locator('[data-ao-action="knockAdd"]').click();
   await expect(page.locator('#ao-knocks')).toHaveText('1');
   await page.locator('[data-ao-action="wrongCorrected"]').click();
@@ -1295,11 +1312,53 @@ test('arena obstacle control: the controller reports at H1, the judge adds the p
   await expect(add).toContainText('+24 s', { timeout: 30000 });
   await add.click();
   await expect(page.locator('#pr-arenaChecks')).toContainText('Tillagt');
+  await expect(page.locator('#pr-arenaChecks')).toContainText('A B b B');
   await expect.poll(async () => {
     const d = await readDoc(`${picked.competitionId}/precision/${picked.startNumber}`);
     return d ? { knocks: d.knocks || [], wrongCourse: d.arenaIncidents?.wrongCourse ?? 0 } : null;
   }, { timeout: 30000 }).toEqual({ knocks: ['H1'], wrongCourse: 1 });
   await expect.poll(async () => (await readDoc(checkPath))?.applied || null, { timeout: 30000 }).toEqual({ knocks: 1, wrongCourse: true });
+  // Each gate kept its split time in the round
+  const stored = await readDoc(checkPath);
+  expect(stored.route.map(e => e.g)).toEqual(['A', 'B', 'b', 'B']);
+  expect(stored.route.every(e => Number.isFinite(e.ms) && e.ms > 0)).toBe(true);
+
+  // The whole course: a passage at cone 2 with its split time, then undone
+  await page.goto('/index.html#arena-obstacle');
+  await expect(page.locator('#ao-obstacle')).toBeVisible({ timeout: 30000 });
+  await page.locator('#ao-obstacle').selectOption('*course');
+  await pickEquipage();
+  const cone = page.locator('[data-ao-pass="2"]');
+  await expect(cone).toBeVisible({ timeout: 30000 });
+  await cone.click();
+  await expect(cone).toContainText(/\d{2}:\d{2}/);
+  const passPath = `${picked.competitionId}/arenaChecks/${picked.startNumber}__phase1__2`;
+  await expect.poll(async () => {
+    const d = await readDoc(passPath);
+    return Number.isFinite(d?.passMs) && d.passMs > 0;
+  }, { timeout: 30000 }).toBe(true);
+
+  // The results: the equipage's details show the split times and the route
+  await page.goto('/index.html#precision-results');
+  const resultRow = page.locator(`#page-precision-results [data-sn="${picked.startNumber}"]`).locator('visible=true').first();
+  await expect(resultRow).toBeVisible({ timeout: 30000 });
+  await resultRow.click();
+  const splitsBox = page.locator('#precisionDetailsModal [data-arena-splits]');
+  await expect(splitsBox).toContainText('A B b B', { timeout: 30000 });
+  await expect(splitsBox).toContainText('Deltider');
+  // The protocol PDF (with the split time tables) is generated
+  const [protocol] = await Promise.all([
+    page.waitForEvent('download', { timeout: 60000 }),
+    page.locator('#precisionDetailsModal #printPrecPdfBtn').click()
+  ]);
+  expect(protocol.suggestedFilename()).toMatch(/^precisionprotokoll_/);
+  await page.keyboard.press('Escape');
+
+  await page.goto('/index.html#arena-obstacle');
+  await expect(page.locator('#ao-obstacle')).toHaveValue('*course', { timeout: 30000 });
+  await pickEquipage();
+  await page.locator('[data-ao-pass-undo]').click();
+  await expect.poll(async () => (await readDoc(passPath))?.passAt ?? null, { timeout: 30000 }).toBe(null);
 });
 
 test('precision results and PDF show phase 2 of a two-phase class', async ({ page }) => {

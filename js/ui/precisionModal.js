@@ -17,6 +17,7 @@ import {
 
 import {
   escapeHtml,
+  msToLabel,
   fmt2,
   horseLabel,
   isNum
@@ -24,7 +25,11 @@ import {
 
 // Importera PDF-funktionen
 import { generateAndPrintPdf } from '../pdf/precisionPdf.js';
-import { getPrecisionFormat } from '../utils/precisionCalculation.js';
+import { getArenaSettings, getPrecisionFormat } from '../utils/precisionCalculation.js';
+import { arenaSplitsByRound } from '../utils/arenaChecks.js';
+import { arenaRoundsOf } from '../utils/arenaRules.js';
+import { getArenaChecksFor } from '../services/arenaCheckService.js';
+import { precisionRoundLabelKey } from '../pages/precision/precisionRoundInput.js';
 import { buildPrecisionModalRoundRows } from './precisionModalRounds.js';
 
 const ROUND_TONE_CLASS = {
@@ -172,6 +177,8 @@ export function renderPrecisionContent(containerElement, eq, precisionData, conf
             </div>
         </div>
         
+        ${getPrecisionFormat(eq, config) === 'arena' ? '<div class="arena-splits-slot"></div>' : ''}
+
         ${(() => {
             const splits = precisionData?.gateSplits || {};
             const splitKeys = Object.keys(splits).filter(k => k === 'start' || k === 'finish' || k.startsWith('gate_'))
@@ -226,6 +233,10 @@ export function renderPrecisionContent(containerElement, eq, precisionData, conf
         </div>
       </div>`;
 
+  // Arena: the obstacle controllers' split times (read once when shown)
+  const splitsSlot = containerElement.querySelector('.arena-splits-slot');
+  if (splitsSlot) fillArenaSplits(splitsSlot, eq, config);
+
   // Koppla PDF-knappen
   const pdfBtn = containerElement.querySelector('#printPrecPdfBtn');
   if (pdfBtn) {
@@ -244,6 +255,36 @@ export function renderPrecisionContent(containerElement, eq, precisionData, conf
       }
     });
   }
+}
+
+// The split times of an arena equipage: the passages at each obstacle and
+// the routes through marathon-type obstacles, per round
+async function fillArenaSplits(slot, eq, config) {
+  const competitionId = getGlobalState('currentCompetition')?.id;
+  const settings = getArenaSettings(eq, config);
+  const rounds = arenaSplitsByRound(await getArenaChecksFor(competitionId, eq.startNumber), eq.startNumber, settings.obstacles, arenaRoundsOf(settings));
+  if (!slot.isConnected || !rounds.length) return;
+  const multi = arenaRoundsOf(settings).length > 1;
+  const split = (ms) => (Number.isFinite(ms) ? msToLabel(ms) : '–');
+  slot.innerHTML = `
+    <div class="border-t dark:border-gray-700 pt-4 mb-6" data-arena-splits>
+      <h4 class="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase mb-3">${escapeHtml(t('arena_splits_title'))}</h4>
+      ${rounds.map((r) => `
+        <div class="mb-3">
+          ${multi ? `<div class="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">${escapeHtml(t(precisionRoundLabelKey(r.round, 'arena', settings)))}</div>` : ''}
+          ${r.passages.length ? `<div class="flex flex-wrap gap-2 mb-2">${r.passages.map((p) => `
+            <div class="bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 px-3 py-1.5 rounded-lg text-sm flex items-center gap-2 border dark:border-gray-600">
+              <span class="font-bold">${escapeHtml(p.label)}</span>
+              <span class="font-mono text-xs opacity-75">${escapeHtml(split(p.ms))}</span>
+            </div>`).join('')}</div>` : ''}
+          ${r.routes.map((route) => `
+            <div class="text-sm text-gray-800 dark:text-gray-200">
+              <span class="font-bold">${escapeHtml(route.label)}:</span>
+              <span class="font-mono">${route.gates.map((g) => `<span title="${escapeHtml(split(g.ms))}" class="${g.g === g.g.toUpperCase() ? '' : 'text-red-600 dark:text-red-400'}">${escapeHtml(g.g)}</span>`).join(' ')}</span>
+              ${Number.isFinite(route.ms) ? `<span class="text-gray-500 dark:text-gray-400"> · ${escapeHtml(t('ao_obstacle_time'))} ${escapeHtml(msToLabel(route.ms))}</span>` : ''}
+            </div>`).join('')}
+        </div>`).join('')}
+    </div>`;
 }
 
 export async function showDetailsModal(sn, equipages, precisionMap, config, startTimes) {
