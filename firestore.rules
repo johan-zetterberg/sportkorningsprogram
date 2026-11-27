@@ -1056,6 +1056,33 @@ service cloud.firestore {
         && isPrecisionDriveOffUnlocked(compId, docId);
     }
 
+    // Arena driving: the obstacle controllers' reports (js/utils/arenaChecks.js,
+    // arenaCheckService). Never a result: the judge adds the penalties on the
+    // precision input page. Written by the precision officials and admins.
+    match /artifacts/{appId}/public/data/competitions/{compId}/arenaChecks/{checkId} {
+      allow read: if isCompetitionVisible(appId, compId);
+      allow delete: if request.auth != null
+        && (hasAnyRoleInComp(appId, compId, ['precision']) || canAdminThisArtifactsComp(appId, compId));
+      allow create, update: if request.auth != null
+        && isArenaCheckWrite(request.resource.data)
+        && isCompetitionOpen(appId, compId)
+        && (hasAnyRoleInComp(appId, compId, ['precision']) || canAdminThisArtifactsComp(appId, compId));
+    }
+
+    function isArenaCheckWrite(d) {
+      return d.keys().hasOnly(['startNumber', 'className', 'round', 'obstacle', 'result', 'knocks', 'by', 'at', 'updatedAt', 'applied'])
+        && d.startNumber is number
+        && d.round in ['phase1', 'driveOff', 'phase2', 'driveOff2']
+        && d.obstacle is string && d.obstacle.size() > 0 && d.obstacle.size() <= 12
+        && (d.get('result', null) == null || d.result in ['ok', 'wrongCorrected', 'wrongUncorrected'])
+        && d.knocks is int && d.knocks >= 0 && d.knocks <= 20
+        && optString(d, 'className', 200) && optString(d, 'by', 128)
+        && optNumber(d, 'at') && optNumber(d, 'updatedAt')
+        && (d.get('applied', null) == null
+          || (d.applied is map && d.applied.keys().hasOnly(['knocks', 'wrongCourse'])
+            && d.applied.get('knocks', 0) is int && d.applied.get('wrongCourse', false) is bool));
+    }
+
     // ---- Dressyrprotokoll (NY STRUKTUR)
     match /artifacts/{appId}/public/data/competitions/{compId}/dressage/{startNumber}/protocols/{docId} {
       allow read: if isCompetitionVisible(appId, compId);

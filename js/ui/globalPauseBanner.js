@@ -31,7 +31,7 @@ import { showConfirm } from './components.js';
 // the driver portal and the public competition center
 const BANNER_ROUTES = new Set([
     'maraton-input', 'maraton-stages', 'observator-input', 'dressyr-input',
-    'precision-input', 'precision-split-input', 'vet-check',
+    'precision-input', 'precision-split-input', 'arena-obstacle', 'vet-check',
     'sekretariat-maraton', 'sekretariat-dressyr', 'sekretariat-precision',
     'speaker', 'dressyr-monitor', 'precision-monitor', 'maraton-monitor',
     'official', 'portal', 'competition-center'

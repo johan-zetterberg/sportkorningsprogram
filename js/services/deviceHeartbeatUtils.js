@@ -5,7 +5,7 @@
 // The input pages used in the field (navigationService's JUDGE_PAGES)
 export const FIELD_PAGES = Object.freeze([
     'dressyr-input', 'maraton-input', 'maraton-stages', 'observator-input',
-    'precision-input', 'precision-split-input', 'vagnbredd', 'vet-check'
+    'precision-input', 'precision-split-input', 'arena-obstacle', 'vagnbredd', 'vet-check'
 ]);
 
 export const HEARTBEAT_INTERVAL_MS = 60 * 1000;

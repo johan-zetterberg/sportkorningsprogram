@@ -66,6 +66,7 @@ export const PAGE_PERMISSIONS = Object.freeze({
     'page-precision-monitor': ['publik', 'funktionar', 'domare', 'admin'],
     'page-precision-input': ['precision', 'domare', 'admin'],
     'page-precision-split-input': ['precision', 'domare', 'admin'],
+    'page-arena-obstacle': ['precision', 'domare', 'admin'],
     'page-precision-results': ['publik', 'funktionar', 'domare', 'admin'],
     'page-precision-admin': ['admin'],
     // The TD / ground jury reads the secretariat pages (the rules decide writes)

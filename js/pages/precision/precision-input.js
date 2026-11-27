@@ -23,6 +23,8 @@ import {
 import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
 import { reportRejectedWrite } from '../../services/rejectedWritesService.js';
 import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert, renderNoCompetitionState } from '../../ui/components.js';
+import { arenaCheckPending, arenaCheckPendingSeconds, normalizeArenaCheck } from '../../utils/arenaChecks.js';
+import { listenArenaChecks, markArenaCheckApplied } from '../../services/arenaCheckService.js';
 import { t, precisionLabel } from '../../utils/i18n.js';
 import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
@@ -105,6 +107,9 @@ import { syncVetStrikeChip } from '../../ui/vetStrikeChip.js';
 
 // ---------- State ----------
 let competitionId = null;
+// Arena: the obstacle controllers' reports (arena-obstacle.js), by doc id
+let arenaChecks = new Map();
+let arenaChecksUnsubscribe = null;
 let equipages = [];
 let precisionConfig = {};
 let currentEquipage = null;
@@ -788,6 +793,9 @@ function renderLayout() {
                     </div>
                 </div>
 
+                <!-- ARENA: hinderkontrollanternas rapporter -->
+                <div id="pr-arenaChecks" class="hidden"></div>
+
                 <!-- ARENA: incidenter (sekunder) -->
                 <div id="pr-arenaIncidents" class="hidden"></div>
 
@@ -1131,6 +1139,82 @@ async function arenaKnock(label, add) {
     }
 }
 
+// The obstacle controllers' reports for the equipage and round shown: what is
+// reported per obstacle, an "Add" for the penalties not yet added (knocks and
+// the wrong-course incident, as if tapped here), a warning for a wrong course
+// not corrected (the judge decides the elimination). Hidden without reports.
+function arenaChecksShown() {
+    if (!currentEquipage || !isArena()) return [];
+    const sn = String(currentEquipage.startNumber);
+    return [...arenaChecks.values()]
+        .map((raw) => ({ raw, c: normalizeArenaCheck(raw) }))
+        .filter(({ c }) => c && c.startNumber === sn && c.round === currentRound && (c.result || c.knocks))
+        .sort((a, b) => a.c.obstacle.localeCompare(b.c.obstacle, 'sv', { numeric: true }));
+}
+
+function renderArenaChecks() {
+    const host = document.getElementById('pr-arenaChecks');
+    if (!host) return;
+    const list = judgingOf() === 'approval' || judgingOf() === 'participation' ? [] : arenaChecksShown();
+    if (!list.length) {
+        host.classList.add('hidden');
+        host.innerHTML = '';
+        return;
+    }
+    const settings = arenaSettingsOf();
+    host.innerHTML = `<h3 class="mb-2 text-xs font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400">${escapeHtml(t('ao_judge_title'))}</h3>
+        <ul class="space-y-2">${list.map(({ raw, c }) => {
+            const pending = arenaCheckPending(raw);
+            const parts = [];
+            if (c.result === 'ok') parts.push(`✓ ${t('ao_ok')}`);
+            if (c.result === 'wrongCorrected') parts.push(t('ao_wrong_corrected'));
+            if (c.result === 'wrongUncorrected') parts.push(t('ao_wrong_uncorrected'));
+            if (c.knocks) parts.push(t('ao_knocks_n').replace('{n}', String(c.knocks)));
+            const penalized = c.knocks > 0 || c.result === 'wrongCorrected';
+            const action = pending.any
+                ? `<button type="button" data-arena-check="${escapeHtml(c.obstacle)}" class="min-h-[44px] px-3 rounded-lg border border-amber-400 bg-amber-50 text-amber-900 text-sm font-bold hover:bg-amber-100 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-100">${escapeHtml(t('ao_judge_add'))} +${escapeHtml(String(arenaCheckPendingSeconds(raw, settings)))} s</button>`
+                : (penalized ? `<span class="text-xs font-semibold text-emerald-700 dark:text-emerald-300">${escapeHtml(t('ao_judge_added'))}</span>` : '');
+            return `<li class="rounded-lg border px-3 py-2 dark:border-gray-600 ${pending.elimination ? 'border-red-300 bg-red-50 dark:bg-red-900/20' : ''}">
+                <div class="flex items-center gap-2">
+                    <span class="min-w-[2.5rem] font-black dark:text-white">${escapeHtml(c.obstacle)}</span>
+                    <span class="min-w-0 flex-1 text-sm dark:text-gray-100">${escapeHtml(parts.join(' · '))}</span>
+                    ${action}
+                </div>
+                ${pending.elimination ? `<div role="alert" class="mt-1 text-sm font-bold text-red-800 dark:text-red-200">⚠️ ${escapeHtml(t('ao_judge_elim'))}</div>` : ''}
+            </li>`;
+        }).join('')}</ul>`;
+    host.classList.remove('hidden');
+}
+
+// "Add": the report's missing knocks on its obstacle and the wrong-course
+// incident, through the page's own knock and incident writes; then the report
+// records what was added
+async function applyArenaCheck(obstacleLabel) {
+    const entry = arenaChecksShown().find(({ c }) => c.obstacle === obstacleLabel);
+    if (!entry || !competitionId) return;
+    const pending = arenaCheckPending(entry.raw);
+    if (!pending.any) return;
+    // Only on the equipage and round the report is for (the judge may switch)
+    const eqAt = currentEquipage;
+    const roundAt = currentRound;
+    const still = () => currentEquipage === eqAt && currentRound === roundAt;
+    for (let i = 0; i < pending.knocks && still(); i += 1) await arenaKnock(obstacleLabel, true);
+    if (pending.wrongCourse && still()) await changeArenaIncident('wrongCourse', 1);
+    if (!still()) return;
+    const c = entry.c;
+    const applied = { knocks: c.knocks, wrongCourse: c.applied.wrongCourse || pending.wrongCourse };
+    arenaChecks.set(entry.raw.id, { ...entry.raw, applied });
+    renderArenaChecks();
+    try {
+        await markArenaCheckApplied(competitionId, { startNumber: c.startNumber, round: c.round, obstacle: c.obstacle }, applied, {
+            onLateError: () => showAlert(t('precision_save_error'), false)
+        });
+    } catch (error) {
+        console.warn('[precision-input] arena check applied:', error?.message || error);
+        showAlert(t('precision_save_error'), false);
+    }
+}
+
 // The incident panel: seconds per incident, count with − and +, a warning at the
 // third groom dismount (elimination)
 function renderArenaIncidents() {
@@ -1168,6 +1252,7 @@ async function changeArenaIncident(key, delta) {
     const previous = arenaIncidents;
     arenaIncidents = next;
     renderArenaIncidents();
+    renderArenaChecks();
     updateTimerView();
     const now = Date.now();
     mirrorRound(equipage.startNumber, round, { arenaIncidents: next, updatedAt: now });
@@ -1185,6 +1270,7 @@ async function changeArenaIncident(key, delta) {
         if (currentEquipage === equipage && currentRound === round) {
             arenaIncidents = previous;
             renderArenaIncidents();
+    renderArenaChecks();
             updateTimerView();
         }
     }
@@ -1452,6 +1538,7 @@ function resetTimer() {
     }
     renderRebuildInfo();
     renderArenaIncidents();
+    renderArenaChecks();
 
     // 2. Nollställ UI-ingångar (om de finns)
     const epInput = document.getElementById('pr-extraPenaltyInput');
@@ -1555,6 +1642,7 @@ function applyLiveDocToState(data = null) {
     updateObstaclePenaltySummary();
     renderTimerUI(getElapsedMs());
     renderArenaIncidents();
+    renderArenaChecks();
     renderRoundUi();
     renderRoundBanner();
     updateRoundControls();
@@ -1882,6 +1970,7 @@ function resetSelectionUi() {
     updateObstaclePenaltySummary();
     renderTimerUI(0);
     renderArenaIncidents();
+    renderArenaChecks();
     renderRoundUi();
     renderRoundBanner();
     updateRoundControls();
@@ -2266,6 +2355,19 @@ export async function load() {
             const btn = e.target.closest('[data-arena-incident]');
             if (btn) changeArenaIncident(btn.dataset.arenaIncident, Number(btn.dataset.delta) || 0);
         });
+        document.getElementById('pr-arenaChecks')?.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-arena-check]');
+            if (btn) applyArenaCheck(btn.dataset.arenaCheck);
+        });
+        // Obstacle controllers' reports (only arena classes have any)
+        if (arenaChecksUnsubscribe) { try { arenaChecksUnsubscribe(); } catch { /* gone */ } }
+        arenaChecksUnsubscribe = equipages.some((e) => isArena(e))
+            ? listenArenaChecks(competitionId, (list) => {
+                if (myLoadId !== currentLoadId) return;
+                arenaChecks = new Map(list.map((c) => [c.id, c]));
+                renderArenaChecks();
+            })
+            : null;
 
         // The list shown: everyone, or the drive-off qualifiers in the drive-off
         const goNext = () => {
@@ -2351,6 +2453,11 @@ export function __unload() {
     // A load still awaiting its data must not register listeners or take the
     // wake lock afterwards
     currentLoadId++;
+    if (arenaChecksUnsubscribe) {
+        try { arenaChecksUnsubscribe(); } catch { /* gone */ }
+        arenaChecksUnsubscribe = null;
+    }
+    arenaChecks = new Map();
     releaseWakeLock();
     stopServerClockSync();
     storedDoc = null;

@@ -29,6 +29,7 @@ export const FIELD_MESSAGE_ROUTES = Object.freeze({
     'dressyr-input': 'dressage',
     'precision-input': 'precision',
     'precision-split-input': 'precision',
+    'arena-obstacle': 'precision',
     'vet-check': 'vet',
     // The official landing page: the viewer's own roles only
     'official': 'any',

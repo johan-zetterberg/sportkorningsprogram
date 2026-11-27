@@ -1239,6 +1239,69 @@ test('arena two rounds summed: placed on the sum of round 1 and 2', async ({ pag
   expect(uniq.slice(0, 3)).toEqual([picked.sns[1], picked.sns[0], picked.sns[2]]);
 });
 
+test('arena obstacle control: the controller reports at H1, the judge adds the penalty', async ({ page }) => {
+  test.setTimeout(240000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  const picked = await page.evaluate(async (competitionId) => {
+    const { getEquipages, saveEquipage } = await import('../js/services/equipageService.js');
+    const { getConfig, saveConfig } = await import('../js/services/competitionService.js');
+    const { db, appId } = await import('../js/config/firebase-config.js');
+    const { doc, setDoc } = await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js');
+    const className = 'Arena Kontroll';
+    const startNumber = Math.max(0, ...(await getEquipages(competitionId)).map(e => Number(e.startNumber) || 0)) + 1;
+    await saveEquipage(competitionId, String(startNumber), { startNumber, driverName: 'Kontroll Kusk', className, status: 'anmäld', horses: [{ name: 'Häst K' }] });
+    const config = (await getConfig(competitionId, 'precisionConfig')) || {};
+    const obstacles = [{ label: '1', type: 'cone' }, { label: 'H1', type: 'marathon' }, { label: '2', type: 'cone' }];
+    const courses = { ...(config.courses || {}), [className]: { format: 'arena', obstacleLabels: obstacles.map(o => o.label), arena: { rules: 'FEI', obstacles } } };
+    await saveConfig(competitionId, 'precisionConfig', { ...config, courses });
+    // On the course
+    await setDoc(doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/precision/${startNumber}`), {
+      startNumber, className, running: true, inProgress: true, status: 'Pågår', liveStartEpoch: Date.now() - 3000, livePausedMs: 0, updatedAt: Date.now()
+    }, { merge: true });
+    return { startNumber: String(startNumber), competitionId };
+  }, competitionId);
+
+  // The controller: H1 is the only control obstacle; the equipage on the course is followed
+  await page.goto('/index.html#arena-obstacle');
+  await expect(page.locator('#ao-obstacle')).toHaveValue('H1', { timeout: 30000 });
+  await expect(page.locator('#ao-current')).toContainText(`#${picked.startNumber}`, { timeout: 30000 });
+  await page.locator('[data-ao-action="knockAdd"]').click();
+  await expect(page.locator('#ao-knocks')).toHaveText('1');
+  await page.locator('[data-ao-action="wrongCorrected"]').click();
+  await expect(page.locator('#ao-status')).toContainText('Fel väg, rättad');
+
+  const readDoc = (path) => page.evaluate(async ({ path }) => {
+    const { db, appId } = await import('../js/config/firebase-config.js');
+    const { doc, getDocFromServer } = await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js');
+    try {
+      const snap = await getDocFromServer(doc(db, `artifacts/${appId}/public/data/competitions/${path}`));
+      return snap.exists() ? snap.data() : null;
+    } catch { return null; }
+  }, { path });
+  const checkPath = `${picked.competitionId}/arenaChecks/${picked.startNumber}__phase1__H1`;
+  await expect.poll(async () => {
+    const d = await readDoc(checkPath);
+    return d ? { result: d.result, knocks: d.knocks } : null;
+  }, { timeout: 30000 }).toEqual({ result: 'wrongCorrected', knocks: 1 });
+
+  // The judge: the report with "Add +24 s" (4 s knock + 20 s wrong course)
+  await page.goto('/index.html#precision-input');
+  const search = page.locator('#pr-precisionEquipageSearchContainer .search-input');
+  await expect(search).toBeVisible({ timeout: 30000 });
+  await page.waitForTimeout(1500);
+  await search.fill(picked.startNumber);
+  await page.locator(`#pr-precisionEquipageSearchContainer .searchable-dropdown-list [data-value="${picked.startNumber}"]`).click();
+  const add = page.locator('#pr-arenaChecks [data-arena-check="H1"]');
+  await expect(add).toContainText('+24 s', { timeout: 30000 });
+  await add.click();
+  await expect(page.locator('#pr-arenaChecks')).toContainText('Tillagt');
+  await expect.poll(async () => {
+    const d = await readDoc(`${picked.competitionId}/precision/${picked.startNumber}`);
+    return d ? { knocks: d.knocks || [], wrongCourse: d.arenaIncidents?.wrongCourse ?? 0 } : null;
+  }, { timeout: 30000 }).toEqual({ knocks: ['H1'], wrongCourse: 1 });
+  await expect.poll(async () => (await readDoc(checkPath))?.applied || null, { timeout: 30000 }).toEqual({ knocks: 1, wrongCourse: true });
+});
+
 test('precision results and PDF show phase 2 of a two-phase class', async ({ page }) => {
   test.setTimeout(300000);
   const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });

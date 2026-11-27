@@ -16,7 +16,7 @@ window.openEmergencyInfo = async () => {
 // Input pages used in the field: no red logout button in the header there
 const JUDGE_PAGES = new Set([
   'dressyr-input', 'maraton-input', 'maraton-stages', 'observator-input',
-  'precision-input', 'precision-split-input', 'vagnbredd', 'vet-check'
+  'precision-input', 'precision-split-input', 'arena-obstacle', 'vagnbredd', 'vet-check'
 ]);
 
 // Settings that decide which menu links make sense, per competition
@@ -78,6 +78,7 @@ const pageLoaders = {
   'precision-monitor': () => import('../pages/precision/precision-monitor.js'),
   'precision-input': () => import('../pages/precision/precision-input.js'),
   'precision-split-input': () => import('../pages/precision/precision-split-input.js'),
+  'arena-obstacle': () => import('../pages/precision/arena-obstacle.js'),
   'precision-results': () => import('../pages/precision/precision-resultat.js'),
   'precision-admin': () => import('../pages/precision/precision-admin.js'),
   'sekretariat-precision': () => import('../pages/secretariat/secretariat-precision.js'),

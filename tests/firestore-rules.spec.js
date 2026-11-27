@@ -1803,6 +1803,26 @@ test('arena driving: incidents per round and Drive-Off 2 are allowed, with limit
   await assertFails(setDoc(ref, { activeRound: 'driveOff3' }, { merge: true }));
 });
 
+test('arena obstacle controllers: precision officials write reports, others may not', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('arena-ctrl-1', 'precision');
+  await seedCompetitionRole('arena-ctrl-dressage', 'dressage');
+  const db = officialDb('arena-ctrl-1');
+  const ref = doc(db, compPath('arenaChecks/101__phase1__H1'));
+  const report = { startNumber: 101, className: 'Fyrspann', round: 'phase1', obstacle: 'H1', result: 'wrongCorrected', knocks: 1, by: 'arena-ctrl-1', at: Date.now(), updatedAt: Date.now() };
+  await assertSucceeds(setDoc(ref, report, { merge: true }));
+  // The judge marks what was added
+  await assertSucceeds(setDoc(ref, { applied: { knocks: 1, wrongCourse: true }, updatedAt: Date.now() }, { merge: true }));
+
+  await assertFails(setDoc(ref, { result: 'maybe' }, { merge: true }));
+  await assertFails(setDoc(ref, { knocks: 21 }, { merge: true }));
+  await assertFails(setDoc(ref, { knocks: 1.5 }, { merge: true }));
+  await assertFails(setDoc(ref, { round: 'phase3' }, { merge: true }));
+  await assertFails(setDoc(ref, { totalPenalty: 0 }, { merge: true }));
+  await assertFails(setDoc(ref, { applied: { knocks: 1, eliminated: true } }, { merge: true }));
+  await assertFails(setDoc(doc(db, compPath('arenaChecks/102__phase1__x')), { ...report, startNumber: 102, obstacle: 'x'.repeat(13) }));
+  await assertFails(setDoc(doc(officialDb('arena-ctrl-dressage'), compPath('arenaChecks/103__phase1__H1')), { ...report, startNumber: 103 }));
+});
+
 test('precision rounds (two phases, drive-off) take the round fields only', { skip: !HAS_EMULATOR }, async () => {
   await seedCompetitionRole('prec-rounds-1', 'precision');
   const db = officialDb('prec-rounds-1');
