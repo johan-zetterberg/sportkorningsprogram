@@ -264,3 +264,60 @@ test('arena judging "approval" and "participation": never placed', () => {
     ({ places } = place([{ startNumber: 1, doc: {} }, { startNumber: 2, doc: {} }], participation));
     assert.deepEqual(places, { 1: null, 2: null });
 });
+
+test('arena two rounds summed: placed on round 1 + round 2, equal sums share, an elimination in either round leaves no place', () => {
+    const settings = normalizeArenaSettings({ rules: 'FEI', sumRounds: true, competitions: 2, driveOff1: 'top3' });
+    assert.equal(settings.sumRounds, true);
+    assert.equal(settings.competitions, 1);
+    assert.equal(settings.driveOff1, 'none');
+    assert.deepEqual(arenaRoundsOf(settings), ['phase1', 'phase2']);
+    // Untimed classes never sum
+    assert.equal(normalizeArenaSettings({ judging: 'faults', sumRounds: true }).sumRounds, false);
+    assert.deepEqual(arenaPrecisionConfigPatch({ rules: 'TR', sumRounds: true }).arenaDefaults.sumRounds, true);
+
+    const config = configOf({ rules: 'TR', sumRounds: true });
+    const two = (a, b, extra = {}) => ({ ...done(a), rounds: { phase2: done(b, extra) } });
+    const rows = [
+        { startNumber: 1, doc: two(60000, 65000) },                // 125
+        { startNumber: 2, doc: two(70000, 50000) },                // 120
+        { startNumber: 3, doc: two(62000, 58000) },                // 120: shares 1st with 2
+        { startNumber: 4, doc: two(50000, 50000, { eliminated: true, status: 'Utesluten' }) },
+        { startNumber: 5, doc: done(55000) }                       // round 1 only
+    ];
+    const r1 = calculatePrecisionResult(rows[0].doc, eq(1), config);
+    assert.equal(r1.rounds.sum.score, 125);
+    assert.equal(r1.rounds.sum.finished, true);
+    assert.equal(r1.rounds.sum.round1Score, 60);
+    assert.equal(r1.rounds.sum.round2Score, 65);
+    assert.equal(r1.driveOffScheduled, false);
+    assert.equal(calculatePrecisionResult(rows[3].doc, eq(4), config).rounds.sum.out, true);
+
+    const { ctx, places } = place(rows, config);
+    assert.deepEqual(places, { 1: 3, 2: 1, 3: 1, 4: null, 5: 4 });
+    // Round 1 alone: a provisional place after those who drove both rounds
+    assert.equal(ctx.isProvisional(rows[4]), true);
+    assert.equal(ctx.isProvisional(rows[0]), false);
+    // Competition 2 does not exist
+    assert.deepEqual(Object.values(place(rows, config, { competition: 2 }).places).filter((p) => p != null), []);
+
+    // While round 1 is driven by all: the standing is on round 1
+    const first = [
+        { startNumber: 1, doc: done(60000) },
+        { startNumber: 2, doc: done(58000) }
+    ];
+    assert.deepEqual(place(first, config).places, { 1: 2, 2: 1 });
+});
+
+test('arena two rounds summed: round 2 starts in reverse order of round 1 and keeps it while round 2 is driven', () => {
+    const config = configOf({ rules: 'TR', sumRounds: true });
+    const resultOf = (row) => calculatePrecisionResult(row.doc, eq(row.startNumber), config);
+    const rows = [
+        { startNumber: 1, doc: done(60000) },
+        { startNumber: 2, doc: done(58000) },
+        { startNumber: 3, doc: done(65000) }
+    ];
+    assert.deepEqual(arenaCompetition2StartOrder(rows, resultOf, () => CLASS).get(CLASS), ['3', '1', '2']);
+    // 3 has driven a slow round 2: the order stays
+    rows[2].doc = { ...rows[2].doc, rounds: { phase2: done(90000) } };
+    assert.deepEqual(arenaCompetition2StartOrder(rows, resultOf, () => CLASS).get(CLASS), ['3', '1', '2']);
+});

@@ -344,7 +344,11 @@ function recalcAndRender() {
         // (competition 1's first round; drive-offs are placed by the class
         // context in prizeGivingRanking) is the precision score here
         const arenaPlaced = arenaRes?.precisionFormat === 'arena' && (arenaJudging === 'timed' || arenaJudging === 'faults');
-        const pPen = arenaPlaced
+        // Two rounds summed: the sum once both rounds are driven
+        const arenaSum = arenaPlaced ? arenaRes.rounds?.sum : null;
+        const pPen = arenaSum
+            ? (arenaSum.finished === true && Number.isFinite(arenaSum.score) ? arenaSum.score : null)
+            : arenaPlaced
             ? (arenaRes.status === 'Klar' && Number.isFinite(arenaRes.totalPenalty) ? arenaRes.totalPenalty : null)
             : (res.precisionComplete ? pCalc.totalPenalty : null);
 

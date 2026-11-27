@@ -100,7 +100,9 @@ export function buildArenaSections(rows = [], resultOf = (row) => row, opts = {}
     // How the class is judged: faults / approval / participation have no time and no drive-off
     const judging = arenaJudgingOf(result(groupRows[0]));
     const untimed = judging !== 'timed';
-    const competitions = settings.competitions === 2 ? 2 : 1;
+    // Two rounds summed: one section placed on the sum ('sum', precisionCalculation.js)
+    const sumRounds = settings.sumRounds === true && !untimed;
+    const competitions = !sumRounds && settings.competitions === 2 ? 2 : 1;
     const bySn = new Map(groupRows.map((r) => [String(r.startNumber), r]));
     const startOrderSns = competitions === 2
       ? (arenaCompetition2StartOrder(groupRows, result, () => key).get(key) || [])
@@ -108,7 +110,7 @@ export function buildArenaSections(rows = [], resultOf = (row) => row, opts = {}
     const comp1Started = groupRows.some((r) => result(r).rounds?.phase1?.hasData);
 
     for (let competition = 1; competition <= competitions; competition += 1) {
-      const firstKey = competition === 1 ? 'phase1' : 'phase2';
+      const firstKey = sumRounds ? 'sum' : (competition === 1 ? 'phase1' : 'phase2');
       const driveOffKey = competition === 1 ? 'driveOff' : 'driveOff2';
       const open = (competition === 1 ? settings.driveOff1 : settings.driveOff2) || 'none';
       const timing = (competition === 1 ? settings.driveOff1Timing : settings.driveOff2Timing) || 'fromZero';
@@ -146,7 +148,10 @@ export function buildArenaSections(rows = [], resultOf = (row) => row, opts = {}
           timeLabel: isNum(first?.timeMs) && first.timeMs > 0 ? msToLabel(first.timeMs) : '',
           knocks: knocksText(first),
           penaltySec: first?.hasData && isNum(first?.penaltySec) ? first.penaltySec : null,
-          score: isNum(first?.score) && (first?.finished || first?.live) ? first.score : null,
+          score: isNum(first?.score) && (first?.finished || first?.live || first?.partial) ? first.score : null,
+          // Two rounds summed: each round's seconds
+          round1: sumRounds && isNum(first?.round1Score) ? formatArenaSeconds(first.round1Score) : '',
+          round2: sumRounds && isNum(first?.round2Score) ? formatArenaSeconds(first.round2Score) : '',
           // Untimed classes: the faults, approval status or "took part"
           judging,
           judgingText: untimed ? arenaJudgingCell(res) : '',
@@ -186,7 +191,8 @@ export function buildArenaSections(rows = [], resultOf = (row) => row, opts = {}
         open,
         timing,
         judging,
-        noteKey: untimed ? arenaJudgingNoteKey(judging) : driveOffNoteKey(open, timing),
+        sumRounds,
+        noteKey: untimed ? arenaJudgingNoteKey(judging) : (sumRounds ? 'arena_result_note_sum' : driveOffNoteKey(open, timing)),
         entries: shownEntries,
         outEntries: shownOut,
         // Competition 2 not driven by anyone yet: only the start order
@@ -254,15 +260,17 @@ export function arenaDesktopHtml(sections = []) {
     const judging = section.judging || 'timed';
     const faults = judging === 'faults';
     const noPlace = judging === 'approval' || judging === 'participation';
-    const timed = judging === 'timed';
+    const sum = section.sumRounds === true;
+    const timed = judging === 'timed' && !sum;
     const head = `<thead><tr>
         ${noPlace ? '' : `<th class="arena-c">${escapeHtml(t('arena_result_col_place'))}</th>`}
         <th class="arena-c">${escapeHtml(t('arena_result_col_no'))}</th>
         <th>${escapeHtml(t('arena_result_col_driver'))}</th>
+        ${sum ? `<th class="arena-n">${escapeHtml(t('arena_result_col_r1'))}</th><th class="arena-n">${escapeHtml(t('arena_result_col_r2'))}</th>` : ''}
         ${timed ? `<th class="arena-n">${escapeHtml(t('arena_result_col_time'))}</th>` : ''}
         ${timed || faults ? `<th class="arena-n">${escapeHtml(t('arena_result_col_knocks'))}</th>` : ''}
         ${timed ? `<th class="arena-n">${escapeHtml(t('arena_result_col_penalty'))}</th>` : ''}
-        <th class="arena-n">${escapeHtml(t(faults ? 'arena_result_faults' : (noPlace ? 'status' : 'arena_result_col_result')))}</th>
+        <th class="arena-n">${escapeHtml(t(faults ? 'arena_result_faults' : (noPlace ? 'status' : (sum ? 'arena_result_col_sum' : 'arena_result_col_result'))))}</th>
         ${hasDriveOff ? `<th class="arena-n">${escapeHtml(driveOffHead(section))}</th>` : ''}
       </tr></thead>`;
     const rowHtml = (e, out = false) => {
@@ -272,6 +280,7 @@ export function arenaDesktopHtml(sections = []) {
         ${noPlace ? '' : `<td class="arena-c arena-place">${out ? '—' : cellHtml(e.placeLabel)}</td>`}
         <td class="arena-c arena-muted-text">${escapeHtml(e.sn)}</td>
         <td class="arena-driver">${escapeHtml(e.name)}${e.row.clubName ? `<span class="arena-sub">${escapeHtml(e.row.clubName)}</span>` : ''}</td>
+        ${sum ? `<td class="arena-n">${cellHtml(e.round1)}</td><td class="arena-n">${cellHtml(e.round2)}</td>` : ''}
         ${timed ? `<td class="arena-n">${out ? cellHtml('') : cellHtml(e.timeLabel)}</td>` : ''}
         ${timed || faults ? `<td class="arena-n">${out ? cellHtml('') : cellHtml(e.knocks)}</td>` : ''}
         ${timed ? `<td class="arena-n">${out || e.penaltySec == null ? cellHtml('') : cellHtml(formatArenaSeconds(e.penaltySec))}</td>` : ''}
@@ -279,7 +288,7 @@ export function arenaDesktopHtml(sections = []) {
         ${hasDriveOff ? `<td class="arena-n">${e.driveOff ? cellHtml(e.driveOff.text, e.driveOff.tone) : ''}</td>` : ''}
       </tr>`;
     };
-    const span = 2 + (noPlace ? 0 : 1) + (timed ? 3 : (faults ? 1 : 0)) + 1 + (hasDriveOff ? 1 : 0);
+    const span = 2 + (noPlace ? 0 : 1) + (timed ? 3 : (faults ? 1 : 0)) + (sum ? 2 : 0) + 1 + (hasDriveOff ? 1 : 0);
     let body = section.entries.map((e) => rowHtml(e)).join('');
     if (section.outEntries.length) {
       body += `<tr class="arena-group"><td colspan="${span}">${escapeHtml(t('arena_result_eliminated'))}</td></tr>`;
@@ -316,7 +325,9 @@ export function arenaMobileHtml(sections = [], compactList, { density } = {}) {
           driveOff: e.driveOff ? cell(e.driveOff.text, e.driveOff.tone) : '<span class="cr-muted">—</span>',
           time: cell(out ? '' : e.timeLabel),
           knocks: cell(out ? '' : e.knocks),
-          penalty: cell(out || e.penaltySec == null ? '' : formatArenaSeconds(e.penaltySec))
+          penalty: cell(out || e.penaltySec == null ? '' : formatArenaSeconds(e.penaltySec)),
+          round1: cell(e.round1),
+          round2: cell(e.round2)
         }
       };
     };
@@ -330,7 +341,13 @@ export function arenaMobileHtml(sections = [], compactList, { density } = {}) {
       : (judging === 'timed'
         ? { key: 'result', label: t('arena_result_short_result'), title: t('arena_result_col_result') }
         : { key: 'result', label: t('status'), title: t('status') });
-    const columns = judging === 'timed'
+    const columns = section.sumRounds
+      ? [
+        { key: 'result', label: t('arena_result_col_sum'), title: t('arena_result_col_sum') },
+        { key: 'round1', label: t('arena_input_round_r1'), title: t('arena_result_col_r1') },
+        { key: 'round2', label: t('arena_input_round_r2'), title: t('arena_result_col_r2') }
+      ]
+      : judging === 'timed'
       ? [
         resultColumn,
         ...(hasDriveOff ? [{ key: 'driveOff', label: t('arena_result_short_driveoff'), title: driveOffHead(section) }] : []),

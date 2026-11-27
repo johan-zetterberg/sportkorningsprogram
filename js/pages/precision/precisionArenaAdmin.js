@@ -90,9 +90,9 @@ export function renderArenaSection(raw, hidden = true) {
                 <div class="text-sm font-semibold text-gray-800 dark:text-white">${escapeHtml(t('arena_admin_format_title'))}</div>
                 <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <label class="block text-sm font-medium dark:text-gray-300">${escapeHtml(t('arena_admin_competitions'))}
-                        ${selectHtml('arena-competitions', [['1', '1'], ['2', '2']], String(s.competitions))}
+                        ${selectHtml('arena-competitions', [['1', '1'], ['2', '2'], ['sum', t('arena_admin_competitions_sum')]], s.sumRounds ? 'sum' : String(s.competitions))}
                     </label>
-                    <label class="block text-sm font-medium dark:text-gray-300">${escapeHtml(t('arena_admin_driveoff1'))}
+                    <label class="arena-driveoff1-wrap block text-sm font-medium dark:text-gray-300">${escapeHtml(t('arena_admin_driveoff1'))}
                         ${selectHtml('arena-driveoff1', driveOffOptions, s.driveOff1)}
                     </label>
                     <div class="arena-timing1-wrap">
@@ -165,7 +165,10 @@ export function updateArenaSection(card) {
     const noneOption = do1.querySelector('option[value="none"]');
     if (noneOption) noneOption.disabled = fei;
     if (fei && do1.value === 'none') do1.value = 'top3';
-    get('.arena-timing1-wrap').classList.toggle('hidden', do1.value === 'none');
+    // Two rounds summed: no drive-off
+    const sum = get('.arena-competitions').value === 'sum';
+    get('.arena-driveoff1-wrap').classList.toggle('hidden', sum);
+    get('.arena-timing1-wrap').classList.toggle('hidden', sum || do1.value === 'none');
     get('.arena-timing1-select').classList.toggle('hidden', fei);
     get('.arena-timing1-fei').classList.toggle('hidden', !fei);
 
@@ -284,14 +287,16 @@ export function readArenaForm(card) {
     const judgingValue = get('.arena-judging')?.value;
     const judging = ARENA_JUDGING.includes(judgingValue) ? judgingValue : 'timed';
     const timed = judging === 'timed';
+    const sumRounds = timed && get('.arena-competitions').value === 'sum';
     const competitions = timed && get('.arena-competitions').value === '2' ? 2 : 1;
-    const driveOff1 = timed ? get('.arena-driveoff1').value : 'none';
+    const driveOff1 = timed && !sumRounds ? get('.arena-driveoff1').value : 'none';
     const driveOff2 = competitions === 2 ? get('.arena-driveoff2').value : 'none';
 
     const obstacles = obstaclesInSection(section);
 
     const settings = { rules, competitions, driveOff1 };
     if (!timed) settings.judging = judging;
+    if (sumRounds) settings.sumRounds = true;
     if (driveOff1 !== 'none') settings.driveOff1Timing = get('.arena-timing1').value;
     if (competitions === 2) {
         settings.driveOff2 = driveOff2;

@@ -183,6 +183,11 @@ function arenaCompetition(result, competition) {
         const placed = s.judging === 'faults' && competition !== 2;
         return { first: placed ? rounds.phase1 : null, driveOff: null, open: 'none', timing: 'fromZero', tr: false };
     }
+    // Two rounds summed: one competition placed on the sum (an equal sum
+    // shares the place), no drive-off
+    if (s.sumRounds) {
+        return { first: competition !== 2 ? (rounds.sum || null) : null, driveOff: null, open: 'none', timing: 'fromZero', tr: false };
+    }
     return competition === 2
         ? { first: rounds.phase2, driveOff: rounds.driveOff2, open: s.driveOff2 || 'none', timing: s.driveOff2Timing || 'added', tr: s.rules === 'TR' }
         : { first: rounds.phase1, driveOff: rounds.driveOff, open: s.driveOff1 || 'none', timing: s.driveOff1Timing || 'fromZero', tr: s.rules === 'TR' };
@@ -193,9 +198,12 @@ function arenaBaseKey(result, competition, requireFinished) {
     if (!result || result.isClearRound === true) return null;
     const { first, tr } = arenaCompetition(result, competition);
     if (!first || first.eliminated || first.out || !isNum(first.score)) return null;
+    // Two rounds summed, round 2 not driven yet: a provisional standing on
+    // round 1, after those who have driven both
+    if (first.partial === true) return { tier: 5, penalty: first.score, timeMs: null, provisional: true };
     if (requireFinished && !first.finished) return null;
     if (!first.finished && !first.live) return null;
-    const key = { tier: 4, penalty: first.score, timeMs: tr ? rankTimeMs(first.drivenTimeMs) : null };
+    const key = { tier: first.roundOneOnly === true ? 5 : 4, penalty: first.score, timeMs: tr ? rankTimeMs(first.drivenTimeMs) : null };
     if (!first.finished) key.provisional = true;
     return key;
 }
@@ -455,7 +463,14 @@ export function assignPlaces(rows = [], { key, compare, group = () => '', outFie
 export function arenaCompetition2StartOrder(rows = [], resultOf = (row) => row, groupOf = () => '', {
     startNumberOf: snOf = (row) => row?.startNumber
 } = {}) {
-    const ctx = precisionGroupContext(rows, resultOf, groupOf, { requireFinished: true, startNumberOf: snOf, competition: 1 });
+    // Two rounds summed: round 2 in reverse order of round 1 alone (the order
+    // must not change while round 2 is driven)
+    const round1Of = (row) => {
+        const r = resultOf(row);
+        const s = r?.arena?.settings;
+        return s?.sumRounds ? { ...r, arena: { ...r.arena, settings: { ...s, sumRounds: false, driveOff1: 'none' } } } : r;
+    };
+    const ctx = precisionGroupContext(rows, round1Of, groupOf, { requireFinished: true, startNumberOf: snOf, competition: 1 });
     const keyOf = (row) => ctx.rankKey(row);
     const { placeOf } = assignPlaces(rows, { key: keyOf, compare: comparePrecisionRank, group: groupOf, outField: null });
     const order = new Map();

@@ -942,6 +942,48 @@ function arenaRoundResult(roundDoc, round, equipage, config, settings, { topFina
 }
 
 /**
+ * Two rounds summed (settings.sumRounds): the class's result as one round
+ * ('sum') for the ranking and the lists. score = round 1 + round 2 once both
+ * are finished, round 1 (+ round 2 so far) while round 2 runs; partial: round
+ * 1 finished and round 2 not yet driven (a provisional standing); out: either
+ * round eliminated or retired (no sum).
+ */
+function arenaSumRound(p1, p2) {
+    const r2 = p2 || {};
+    const out = p1.out === true || r2.out === true;
+    const live = !out && (p1.live === true || r2.live === true);
+    const finished = !out && p1.finished === true && r2.finished === true;
+    const partial = !out && !live && p1.finished === true && r2.finished !== true;
+    const counted = [p1, r2].filter((r) => isNum(r.score) && (r.finished === true || r.live === true));
+    const score = !out && counted.length ? round2(counted.reduce((a, r) => a + r.score, 0)) : null;
+    const both = (field) => (isNum(p1[field]) && isNum(r2[field]) ? p1[field] + r2[field] : null);
+    const knocks = [...(Array.isArray(p1.knocks) ? p1.knocks : []), ...(Array.isArray(r2.knocks) ? r2.knocks : [])];
+    return {
+        round: 'sum',
+        scoring: 'time',
+        hasData: p1.hasData === true || r2.hasData === true,
+        live,
+        out,
+        finished,
+        partial,
+        // Round 2 not begun: the standing is on round 1 (tier 5 in the ranking)
+        roundOneOnly: !out && r2.hasData !== true && r2.live !== true,
+        decided: finished || out,
+        eliminated: p1.eliminated === true || r2.eliminated === true,
+        retired: (p1.out === true && p1.retired === true) || (r2.out === true && r2.retired === true),
+        score,
+        totalPenalty: score,
+        timeMs: finished ? both('timeMs') : null,
+        drivenTimeMs: finished ? both('drivenTimeMs') : null,
+        penaltySec: finished ? round2(both('penaltySec') ?? 0) : null,
+        knocks,
+        knocksCount: knocks.length,
+        round1Score: isNum(p1.score) && (p1.finished || p1.live) ? p1.score : null,
+        round2Score: isNum(r2.score) && (r2.finished || r2.live) ? r2.score : null
+    };
+}
+
+/**
  * The arena result of one equipage. The top-level fields are Competition 1's
  * first round (as phase 1 of other formats), with totalPenalty its score in
  * seconds; rounds.{phase1, driveOff, phase2, driveOff2} each round (null when
@@ -999,7 +1041,8 @@ function calculateArenaResult(d, equipage, config, options = {}) {
             phase1: { ...p1, hasData: true },
             driveOff: roundOf('driveOff'),
             phase2: roundOf('phase2'),
-            driveOff2: roundOf('driveOff2')
+            driveOff2: roundOf('driveOff2'),
+            ...(settings.sumRounds ? { sum: arenaSumRound(p1, roundOf('phase2')) } : {})
         },
         arena: { settings, rounds: [...driven] },
         phase2Qualified: false,

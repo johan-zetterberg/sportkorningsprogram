@@ -6,9 +6,11 @@ import { PRECISION_ROUNDS, readPrecisionRound } from '../../utils/precisionRound
 import { buildPrecisionMergeState, resolvePrecisionMergeGrouping } from './precisionResultMerge.js';
 
 /** i18n key of a round's tab label ("Fas 1" / "GrundomgÃ¥ng" for the first round of a drive-off class) */
-export function precisionRoundLabelKey(round, format, { competitions = 1 } = {}) {
+export function precisionRoundLabelKey(round, format, { competitions = 1, sumRounds = false } = {}) {
     // Arena driving: Competition 1 / Drive-Off 1 / Competition 2 / Drive-Off 2 (one competition: Initial round / Drive-off)
     if (format === 'arena') {
+        // Two rounds summed: Round 1 / Round 2
+        if (sumRounds) return round === 'phase2' ? 'arena_input_round_r2' : 'arena_input_round_r1';
         const two = competitions === 2;
         if (round === 'phase2') return 'arena_input_round_c2';
         if (round === 'driveOff2') return 'arena_input_round_do2';

@@ -355,6 +355,7 @@ function renderLayout() {
                     <select id="arenaCompetitions" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                       <option value="1">${t('arena_create_competitions_1')}</option>
                       <option value="2">${t('arena_create_competitions_2')}</option>
+                      <option value="sum">${t('arena_create_competitions_sum')}</option>
                     </select>
                   </div>
                   <div>
@@ -514,6 +515,8 @@ function syncArenaCreateBox() {
   const driveOff = document.getElementById('arenaDriveOff1');
   const noneOption = driveOff?.querySelector('option[value="none"]');
   if (!driveOff || !noneOption) return;
+  // Two rounds summed have no drive-off
+  driveOff.closest('div')?.classList.toggle('hidden', document.getElementById('arenaCompetitions')?.value === 'sum');
   const feiRules = rules === 'FEI';
   noneOption.disabled = feiRules;
   noneOption.hidden = feiRules;
@@ -879,6 +882,7 @@ function setupEventListeners() {
     });
 
     document.getElementById('arenaRules')?.addEventListener('change', syncArenaCreateBox);
+    document.getElementById('arenaCompetitions')?.addEventListener('change', syncArenaCreateBox);
 
     document.getElementById('compMode')?.addEventListener('change', () => {
       const nextMode = document.getElementById('compMode')?.value === 'field' ? 'field' : 'live';
@@ -947,10 +951,13 @@ function setupEventListeners() {
       if (compData.competitionKind === 'arena') {
         const rules = document.getElementById('arenaRules')?.value === 'TR' ? 'TR' : 'FEI';
         const driveOff = document.getElementById('arenaDriveOff1')?.value;
+        const competitionsValue = document.getElementById('arenaCompetitions')?.value;
+        const sumRounds = competitionsValue === 'sum';
         compData.arenaDefaults = {
           rules,
-          competitions: Number(document.getElementById('arenaCompetitions')?.value) === 2 ? 2 : 1,
-          driveOff1: ['top3', 'all', 'none'].includes(driveOff) && !(rules === 'FEI' && driveOff === 'none') ? driveOff : 'top3'
+          competitions: !sumRounds && Number(competitionsValue) === 2 ? 2 : 1,
+          driveOff1: sumRounds ? 'none' : (['top3', 'all', 'none'].includes(driveOff) && !(rules === 'FEI' && driveOff === 'none') ? driveOff : 'top3'),
+          ...(sumRounds ? { sumRounds: true } : {})
         };
       }
 

@@ -732,7 +732,7 @@ function renderLiveStatusPanel() {
     ? (liveRoundResult.scoring === 'time' || liveRoundResult.scoring === 'faults' ? formatPrecisionSeconds(liveRoundResult.totalPenalty) : `${liveRoundResult.totalPenalty.toFixed(2)} p`)
     : null;
   const arenaRoundLabel = arena
-    ? t(precisionRoundLabelKey(liveRound, 'arena', { competitions: getArenaSettings(activeEq, precision_precisionConfig || {}).competitions }))
+    ? t(precisionRoundLabelKey(liveRound, 'arena', getArenaSettings(activeEq, precision_precisionConfig || {})))
     : '';
 
   container.classList.remove('hidden');

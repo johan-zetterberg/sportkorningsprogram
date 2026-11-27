@@ -1178,6 +1178,67 @@ test('arena results: the live panel clock ticks while a round runs', async ({ pa
   expect((await timer.textContent()).trim()).not.toBe(first);
 });
 
+test('arena two rounds summed: placed on the sum of round 1 and 2', async ({ page }) => {
+  test.setTimeout(180000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  const picked = await page.evaluate(async (competitionId) => {
+    const { getEquipages, saveEquipage } = await import('../js/services/equipageService.js');
+    const { getConfig, saveConfig } = await import('../js/services/competitionService.js');
+    const { db, appId } = await import('../js/config/firebase-config.js');
+    const { doc, setDoc } = await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js');
+    const className = 'Arena Summa';
+    const top = Math.max(0, ...(await getEquipages(competitionId)).map(e => Number(e.startNumber) || 0));
+    const rows = [];
+    for (let i = 1; i <= 3; i++) {
+      const startNumber = top + i;
+      await saveEquipage(competitionId, String(startNumber), { startNumber, driverName: `Summa ${i}`, className, status: 'anmäld', horses: [{ name: `Häst ${i}` }] });
+      rows.push({ startNumber });
+    }
+    const config = (await getConfig(competitionId, 'precisionConfig')) || {};
+    const courses = { ...(config.courses || {}) };
+    courses[className] = {
+      ...(courses[className] || {}),
+      format: 'arena',
+      obstacleLabels: ['1', '2'],
+      arena: { rules: 'TR', sumRounds: true, obstacles: [{ label: '1', type: 'cone' }, { label: '2', type: 'marathon' }] }
+    };
+    await saveConfig(competitionId, 'precisionConfig', { ...config, courses });
+    const done = (timeMs) => ({ timeMs, running: false, inProgress: false, status: 'Klar', knocks: [], updatedAt: Date.now() });
+    // A: 60 + 65 = 125, B: 70 + 50 = 120 (winner), C: 55 in round 1 only
+    const times = [[60000, 65000], [70000, 50000], [55000, null]];
+    const sns = [];
+    for (let i = 0; i < rows.length; i++) {
+      const ref = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/precision/${rows[i].startNumber}`);
+      const [a, b] = times[i];
+      await setDoc(ref, { startNumber: Number(rows[i].startNumber), className, ...done(a) }, { merge: true });
+      if (b) {
+        await setDoc(ref, {
+          startNumber: Number(rows[i].startNumber), className, activeRound: 'phase2', updatedAt: Date.now(),
+          rounds: { phase2: done(b) }
+        }, { merge: true });
+      }
+      sns.push(String(rows[i].startNumber));
+    }
+    return { className, sns };
+  }, competitionId);
+
+  await page.goto('/index.html#precision-admin');
+  const card = page.locator(`#classConfigsContainer [data-class-name="${picked.className}"]`);
+  await expect(card.locator('.arena-competitions')).toHaveValue('sum', { timeout: 30000 });
+  await expect(card.locator('.arena-driveoff1-wrap')).toBeHidden();
+
+  await page.goto('/index.html#precision-results');
+  const section = page.locator('#page-precision-results .arena-section').filter({ hasText: picked.className }).first();
+  await expect(section).toBeVisible({ timeout: 30000 });
+  await expect(section).toContainText('omgång 1 och 2');
+  const rowOf = (sn) => section.locator(`tr[data-sn="${sn}"], [data-sn="${sn}"]`).locator('visible=true').first();
+  await expect(rowOf(picked.sns[1])).toContainText('120,00');
+  await expect(rowOf(picked.sns[0])).toContainText('125,00');
+  const order = await section.locator('[data-sn]').locator('visible=true').evaluateAll(els => els.map(e => e.getAttribute('data-sn')));
+  const uniq = order.filter((sn, i) => order.indexOf(sn) === i);
+  expect(uniq.slice(0, 3)).toEqual([picked.sns[1], picked.sns[0], picked.sns[2]]);
+});
+
 test('precision results and PDF show phase 2 of a two-phase class', async ({ page }) => {
   test.setTimeout(300000);
   const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });

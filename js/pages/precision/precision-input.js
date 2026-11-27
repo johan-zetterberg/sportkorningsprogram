@@ -1644,10 +1644,10 @@ function renderRoundUi() {
         return;
     }
     const format = equipageFormat();
-    const competitions = isArena() ? arenaSettingsOf().competitions : 1;
+    const arenaLabelOpts = isArena() ? arenaSettingsOf() : { competitions: 1 };
     host.innerHTML = `<div class="grid gap-2 ${rounds.length > 3 ? 'grid-cols-2 sm:grid-cols-4' : (rounds.length > 2 ? 'grid-cols-3' : 'grid-cols-2')}">${rounds.map((r) => {
         const active = r === currentRound;
-        return `<button type="button" role="tab" aria-selected="${active}" data-round="${escapeHtml(r)}" class="min-h-[44px] px-3 rounded-lg border text-base font-bold ${active ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600'}">${escapeHtml(t(precisionRoundLabelKey(r, format, { competitions })))}</button>`;
+        return `<button type="button" role="tab" aria-selected="${active}" data-round="${escapeHtml(r)}" class="min-h-[44px] px-3 rounded-lg border text-base font-bold ${active ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600'}">${escapeHtml(t(precisionRoundLabelKey(r, format, arenaLabelOpts)))}</button>`;
     }).join('')}</div>`;
     host.classList.remove('hidden');
 }

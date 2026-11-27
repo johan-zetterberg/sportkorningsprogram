@@ -62,6 +62,11 @@ export const ARENA_OBSTACLE_TYPES = ['cone', 'marathon', 'bridge', 'speedBox'];
 //   approval       the judge marks approved / not approved; no placing
 export const ARENA_JUDGING = ['timed', 'faults', 'participation', 'approval'];
 
+// Two rounds summed (settings.sumRounds, timed classes): every equipage
+// drives round 1 (phase1) and round 2 (phase2) of one competition; the result
+// is the sum of the two rounds' seconds, equal sums share the place, an
+// elimination or retirement in either round leaves no result; no drive-off.
+
 /** The rounds of an arena class in driving order */
 export const ARENA_ROUNDS = ['phase1', 'driveOff', 'phase2', 'driveOff2'];
 
@@ -86,6 +91,7 @@ const oneOf = (value, allowed, fallback) => (allowed.includes(value) ? value : f
  *                 from zero, 5.3.2/5.3.3)
  *   obstacles     [{ label, type }] the course (labels for the knock buttons)
  *   judging       ARENA_JUDGING; other than 'timed': one competition, no drive-off
+ *   sumRounds     true: two rounds summed (timed only): one competition, no drive-off
  */
 export function normalizeArenaSettings(raw = {}) {
     const r = raw && typeof raw === 'object' ? raw : {};
@@ -93,7 +99,8 @@ export function normalizeArenaSettings(raw = {}) {
     const fei = rules === 'FEI';
     const judging = oneOf(r.judging, ARENA_JUDGING, 'timed');
     const untimed = judging !== 'timed';
-    const competitions = !untimed && Number(r.competitions) === 2 ? 2 : 1;
+    const sumRounds = !untimed && r.sumRounds === true;
+    const competitions = !untimed && !sumRounds && Number(r.competitions) === 2 ? 2 : 1;
 
     const incidentSec = {};
     for (const key of ARENA_INCIDENT_KEYS) {
@@ -105,7 +112,7 @@ export function normalizeArenaSettings(raw = {}) {
     // FEI WC 5.2: a Leg's Competition 1 has a Drive-Off 1; from zero for the
     // best three, added to the first round when open to all (5.2.2)
     if (fei && driveOff1 === 'none') driveOff1 = 'top3';
-    if (untimed) driveOff1 = 'none';
+    if (untimed || sumRounds) driveOff1 = 'none';
     if (fei) driveOff1Timing = driveOff1 === 'all' ? 'added' : 'fromZero';
 
     let driveOff2 = competitions === 2 ? oneOf(r.driveOff2, ['none', 'top3'], 'top3') : 'none';
@@ -132,7 +139,8 @@ export function normalizeArenaSettings(raw = {}) {
         driveOff2,
         driveOff2Timing: driveOff2 === 'none' ? 'added' : driveOff2Timing,
         obstacles,
-        judging
+        judging,
+        sumRounds
     };
 }
 
@@ -146,6 +154,7 @@ export function normalizeArenaSettings(raw = {}) {
 export function arenaPrecisionConfigPatch(raw = {}) {
     const s = normalizeArenaSettings(raw);
     const arenaDefaults = { rules: s.rules, competitions: s.competitions, driveOff1: s.driveOff1 };
+    if (s.sumRounds) arenaDefaults.sumRounds = true;
     if (s.rules === 'TR' && s.driveOff1 !== 'none') arenaDefaults.driveOff1Timing = s.driveOff1Timing;
     if (s.competitions === 2) {
         arenaDefaults.driveOff2 = s.driveOff2;
@@ -157,6 +166,7 @@ export function arenaPrecisionConfigPatch(raw = {}) {
 /** The rounds the settings drive, in order */
 export function arenaRoundsOf(settings) {
     const s = settings || normalizeArenaSettings();
+    if (s.sumRounds) return ['phase1', 'phase2'];
     const rounds = ['phase1'];
     if (s.driveOff1 !== 'none') rounds.push('driveOff');
     if (s.competitions === 2) {

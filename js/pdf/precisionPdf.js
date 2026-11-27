@@ -18,7 +18,8 @@ import {
   getPrecisionRoundCourse,
   getPrecisionRoundObstacleLabels,
   getPrecisionRoundTempoMpm,
-  isPrecisionDriveOffScheduled
+  isPrecisionDriveOffScheduled,
+  getArenaSettings
 } from '../utils/precisionCalculation.js';
 import {
   bannerStartNumbersLabel,
@@ -338,6 +339,10 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
   const roundHeads = [];
   if (formats.includes('twoPhase')) roundHeads.push({ round: 'phase2', label: tr('precision_round_phase2') });
   if (printableEquipages.some(eq => isPrecisionDriveOffScheduled(eq, config))) roundHeads.push({ round: 'driveOff', label: tr('precision_round_driveoff') });
+  // Arena, two rounds summed: round 2 and the sum the places come from
+  if (printableEquipages.some(eq => getPrecisionFormat(eq, config) === 'arena' && getArenaSettings(eq, config).sumRounds)) {
+    roundHeads.push({ round: 'phase2', label: tr('arena_input_round_r2') }, { round: 'sum', label: tr('arena_result_col_sum') });
+  }
 
   // Drive-off pending (provisional places) and engine warnings, above the table
   const bannerItems = buildPrecisionBannerItems(printableEquipages.map(eq => ({
