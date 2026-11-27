@@ -1021,6 +1021,35 @@ test('precision admin: course length and obstacles are copied from another class
   await expect(target.locator('.special-port-input[data-label="4B"]')).toHaveCount(1);
 });
 
+test('start times: the superadmin edits the arena start list and sees the generated times', async ({ page }) => {
+  test.setTimeout(240000);
+  await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  await page.goto('/index.html#hub');
+  await page.locator('#btnToggleCreateCompetition').click();
+  await page.locator('.hub-template-card[data-template-id="arena"]').click();
+  await page.locator('#compName').fill('Arena Start');
+  await page.locator('#compStartDate').fill('2026-12-05');
+  await page.locator('#compEndDate').fill('2026-12-05');
+  await page.locator('#compClub').fill('Testklubben');
+  await page.locator('#compPlace').fill('Ridhuset');
+  await page.locator('#createCompetitionForm button[type="submit"]').click();
+  await page.waitForURL(/#admin/, { timeout: 30000 });
+  const competitionId = await page.evaluate(async () => (await import('../js/main.js')).getGlobalState('currentCompetition').id);
+  await page.evaluate(async (competitionId) => {
+    const { saveEquipage } = await import('../js/services/equipageService.js');
+    for (let i = 1; i <= 3; i++) {
+      await saveEquipage(competitionId, String(i), { startNumber: i, driverName: `Kusk ${i}`, className: 'Arena Enbet Häst', status: 'anmäld', horses: [{ name: `Häst ${i}` }] });
+    }
+  }, competitionId);
+  await page.goto('/index.html#starttider');
+  await page.locator('#bulkFirst').fill('2026-12-05T10:00');
+  await page.locator('#generatePrecisionAdvancedBtn').click();
+  // The editable list (not the public view of published times only)
+  await expect(page.locator('#startlist-container input[type="datetime-local"]').first()).toBeVisible({ timeout: 30000 });
+  const values = await page.locator('#startlist-container input[type="datetime-local"]').evaluateAll(els => els.map(e => e.value).filter(Boolean));
+  expect(values).toEqual(expect.arrayContaining(['2026-12-05T10:00', '2026-12-05T10:07', '2026-12-05T10:14']));
+});
+
 test('arena driving: knocks and incidents are saved and the class gets its own result list', async ({ page }) => {
   test.setTimeout(300000);
   const shot = async (name) => {

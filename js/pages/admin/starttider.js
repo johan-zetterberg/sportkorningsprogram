@@ -11,6 +11,7 @@ import { listenForDressageFinalizationCollection } from '../../services/dressage
 import { generateStartListPdf } from '../../pdf/startListPdf.js';
 import { getGlobalState, setGlobalState } from '../../main.js';
 import { getCurrentUserRole } from '../../services/authService.js';
+import { hasRoleAccess, mergeUserRoles } from '../../utils/roleAccess.js';
 import { getCompetitionHeader, showAlert, renderNoCompetitionState } from '../../ui/components.js';
 import { saveCompetitionMessage } from '../../services/documentService.js';
 import { buildMessageAudience } from '../../utils/messageAudience.js';
@@ -2419,6 +2420,12 @@ export async function load() {
 
     renderLayout();
     currentUserRole = await getCurrentUserRole();
+    // The superadmin and the competition's own admins (invited by e-mail: the
+    // admin role is a competition role, compRoles) edit the start times too,
+    // not only a global admin; the rest of the page tests for 'admin'
+    if (hasRoleAccess([currentUserRole, ...mergeUserRoles(getGlobalState('currentUser'))], ['admin'])) {
+        currentUserRole = 'admin';
+    }
     try {
         await loadData();
         bindAllControls();
