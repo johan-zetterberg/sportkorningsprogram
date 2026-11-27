@@ -964,6 +964,40 @@ test('arena judging: a class without timing is judged on faults, another on appr
   await expect.poll(async () => (await readDoc(picked.approval))?.approved, { timeout: 60000 }).toBe(true);
 });
 
+test('prize-giving: a timed arena class gets its placings', async ({ page }) => {
+  test.setTimeout(180000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  const setup = await page.evaluate(async (competitionId) => {
+    const { getEquipages } = await import('../js/services/equipageService.js');
+    const { getConfig, saveConfig, updateCompetition } = await import('../js/services/competitionService.js');
+    const { savePrecisionResult } = await import('../js/services/precisionService.js');
+    const { t } = await import('../js/utils/i18n.js');
+    await updateCompetition(competitionId, { competitionKind: 'arena' });
+    const equipages = (await getEquipages(competitionId)).filter(e => e.status !== 'struken');
+    const byClass = new Map();
+    equipages.forEach(e => byClass.set(e.className, [...(byClass.get(e.className) || []), e]));
+    const [className, inClass] = [...byClass.entries()].find(([, list]) => list.length >= 2);
+    const config = (await getConfig(competitionId, 'precisionConfig')) || {};
+    const courses = { ...(config.courses || {}) };
+    // TR without a drive-off: placed on the first round straight away
+    courses[className] = { ...(courses[className] || {}), format: 'arena', obstacleLabels: ['1'], arena: { rules: 'TR', competitions: 1, driveOff1: 'none', obstacles: [{ label: '1', type: 'cone' }] } };
+    await saveConfig(competitionId, 'precisionConfig', { ...config, courses });
+    for (const [i, eq] of inClass.slice(0, 2).entries()) {
+      await savePrecisionResult(competitionId, String(eq.startNumber), {
+        startNumber: eq.startNumber, className, timeMs: 60000 + i * 5000, knocks: [], knocksVersion: 2,
+        running: false, inProgress: false, status: 'Klar'
+      });
+    }
+    return { className, winner: t('prize_winner') };
+  }, competitionId);
+
+  await page.goto('/index.html#prize-giving');
+  const tab = page.locator(`#prize-giving-tabs [data-class="${setup.className}"]`).first();
+  await expect(tab).toBeVisible({ timeout: 30000 });
+  await tab.click();
+  await expect(page.locator('#prize-giving-content')).toContainText(setup.winner, { timeout: 30000 });
+});
+
 test('arena driving: knocks and incidents are saved and the class gets its own result list', async ({ page }) => {
   test.setTimeout(300000);
   const shot = async (name) => {

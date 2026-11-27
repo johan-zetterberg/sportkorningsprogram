@@ -339,7 +339,12 @@ function recalcAndRender() {
         const arenaRes = activeDiscipline === 'precision' ? calculatePrecisionResult(pData, eq, precisionConfig) : null;
         const arenaJudging = arenaJudgingOf(arenaRes);
         const judgingText = arenaJudging === 'approval' || arenaJudging === 'participation' ? arenaJudgingCell(arenaRes) : '';
-        const pPen = arenaJudging === 'faults'
+        // Arena classes (timed or faults) never count towards a total, so
+        // precisionComplete is always false for them: a finished arena result
+        // (competition 1's first round; drive-offs are placed by the class
+        // context in prizeGivingRanking) is the precision score here
+        const arenaPlaced = arenaRes?.precisionFormat === 'arena' && (arenaJudging === 'timed' || arenaJudging === 'faults');
+        const pPen = arenaPlaced
             ? (arenaRes.status === 'Klar' && Number.isFinite(arenaRes.totalPenalty) ? arenaRes.totalPenalty : null)
             : (res.precisionComplete ? pCalc.totalPenalty : null);
 
